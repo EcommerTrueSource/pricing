@@ -1,0 +1,7 @@
+export enum EContractStatus {
+  DRAFT = 'DRAFT',
+  PENDING_SIGNATURE = 'PENDING_SIGNATURE',
+  SIGNED = 'SIGNED',
+  EXPIRED = 'EXPIRED',
+  CANCELLED = 'CANCELLED',
+}

@@ -1,0 +1,6 @@
+export enum ENotificationType {
+  SIGNATURE_PENDING = 'SIGNATURE_PENDING',
+  SIGNED = 'SIGNED',
+  EXPIRED = 'EXPIRED',
+  CANCELLED = 'CANCELLED',
+}

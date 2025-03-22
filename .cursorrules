@@ -1,0 +1,276 @@
+# Cursor Rules for Contract Management Module
+
+# NestJS Architecture
+- Follow modular architecture principles
+- Keep modules isolated with clear responsibilities
+- Use dependency injection for all services
+- Create proper interfaces for all services
+- Implement Repository pattern for database access
+- Apply proper separation of concerns
+
+# TypeScript Best Practices
+- Use strict typing for all variables and functions
+- Avoid 'any' type wherever possible
+- Create proper interfaces and types
+- Use readonly for immutable properties
+- Apply optional chaining and nullish coalescing
+- Use generics for reusable components
+- Prefer interfaces over types for public APIs
+
+# Naming Conventions
+- PascalCase for classes, interfaces, types, and enums
+- camelCase for variables, functions, and methods
+- kebab-case for files and folders
+- UPPER_SNAKE_CASE for constants
+- Prefix interfaces with 'I' (e.g., IContractService)
+- Suffix service classes with 'Service' (e.g., ContractService)
+- Suffix repository classes with 'Repository' (e.g., ContractRepository)
+- Suffix controller classes with 'Controller' (e.g., ContractController)
+- Suffix DTOs with 'Dto' (e.g., CreateContractDto)
+- Use verb prefix for functions (e.g., getContract, createContract)
+- Use is/has/can for boolean variables (e.g., isActive, hasExpired)
+
+# Code Structure
+- Keep functions under 20 lines
+- Limit classes to 200 lines
+- Maximum 10 public methods per class
+- Maximum 3 parameters per function
+- Use early returns to avoid nesting
+- Extract complex logic to helper functions
+- One export per file
+- Group related functionality
+
+# Database and ORM
+- Use TypeORM decorators appropriately
+- Create proper entity relationships
+- Add database indices for frequent queries
+- Use UUIDs for primary keys
+- Implement soft deletes where needed
+- Use transactions for multi-table operations
+- Validate entity data before saving
+- Use migrations for schema changes
+
+# DTOs and Validation
+- Create separate DTOs for input and output
+- Use class-validator decorators for input validation
+- Use class-transformer for response serialization
+- Add ApiProperty decorators for Swagger
+- Create nested DTOs for complex structures
+- Implement custom validators when needed
+
+# Error Handling
+- Create custom exception classes
+- Use NestJS exception filters
+- Return appropriate HTTP status codes
+- Provide meaningful error messages
+- Add context to caught exceptions
+- Log all exceptions properly
+- Handle third-party service errors gracefully
+
+# Domain-Specific Rules
+## Contracts
+- Implement state machine pattern for contract status
+- Track all status changes in history
+- Store content with versioned templates
+- Generate PDFs using templates
+- Implement proper contract workflow
+- Validate contracts before sending to signature
+
+## Notifications
+- Limit to maximum 5 notification attempts
+- Wait 5 days between notification attempts
+- Track notification status and delivery
+- Store notification history
+- Handle notification failures gracefully
+- Create appropriate notification content
+
+## Integration Services
+- Abstract external APIs behind interfaces
+- Handle API errors and timeouts
+- Implement retry mechanisms
+- Log all external API calls
+- Create proper DTOs for external service responses
+- Use environment variables for configuration
+
+# Testing
+- Write unit tests for all services
+- Create integration tests for repositories
+- Implement e2e tests for controllers
+- Mock external dependencies
+- Follow AAA pattern (Arrange-Act-Assert)
+- Use proper test naming conventions
+- Achieve at least 80% test coverage
+
+# Security
+- Validate all inputs
+- Sanitize all outputs
+- Implement proper authentication
+- Use role-based access control
+- Follow OWASP security guidelines
+- Handle sensitive data properly
+- Implement rate limiting
+
+# Documentation
+- Add JSDoc comments to all public methods
+- Document all interfaces and DTOs
+- Use Swagger for API documentation
+- Add examples in Swagger
+- Create README files for modules
+- Document environment variables
+- Add inline comments for complex logic
+
+# Project Structure Guidelines
+```
+src/
+├── modules/
+│   └── contract-management/
+│       ├── contract-management.module.ts
+│       ├── controllers/
+│       │   ├── contract.controller.ts
+│       │   ├── seller.controller.ts
+│       │   ├── template.controller.ts
+│       │   ├── notification.controller.ts
+│       │   └── status.controller.ts
+│       ├── dtos/
+│       │   ├── seller/
+│       │   │   ├── create-seller.dto.ts
+│       │   │   ├── update-seller.dto.ts
+│       │   │   └── seller-response.dto.ts
+│       │   ├── contract/
+│       │   │   └── [...]
+│       │   ├── template/
+│       │   │   └── [...]
+│       │   └── notification/
+│       │       └── [...]
+│       ├── entities/
+│       │   ├── seller.entity.ts
+│       │   ├── contract.entity.ts
+│       │   ├── template.entity.ts
+│       │   ├── notification.entity.ts
+│       │   └── status-history.entity.ts
+│       ├── enums/
+│       │   ├── contract-status.enum.ts
+│       │   └── [...]
+│       ├── interfaces/
+│       │   ├── contract-service.interface.ts
+│       │   └── [...]
+│       ├── repositories/
+│       │   ├── seller.repository.ts
+│       │   └── [...]
+│       ├── services/
+│       │   ├── seller.service.ts
+│       │   └── [...]
+│       ├── integration/
+│       │   ├── brasil-api/
+│       │   │   └── [...]
+│       │   ├── autentique/
+│       │   │   └── [...]
+│       │   └── whatsapp/
+│       │       └── [...]
+│       └── [...]
+```
+
+# Entities Schema Reference
+## Seller Entity
+- id: uuid (PK)
+- cnpj: string (unique, validated)
+- razaoSocial: string
+- email: string (validated)
+- telefone: string (validated)
+- endereco: string
+- createdAt: Date
+- updatedAt: Date
+
+## Contract Entity
+- id: uuid (PK)
+- sellerId: uuid (FK)
+- templateId: uuid (FK)
+- status: EContractStatus (enum)
+- content: string
+- externalId: string (Autentique ID)
+- signingUrl: string
+- notificationAttempts: number (max 5)
+- lastNotificationAt: Date
+- signedAt: Date (nullable)
+- expiresAt: Date
+- createdAt: Date
+- updatedAt: Date
+
+## StatusHistory Entity
+- id: uuid (PK)
+- contractId: uuid (FK)
+- fromStatus: EContractStatus
+- toStatus: EContractStatus
+- reason: EStatusChangeReason
+- metadata: jsonb
+- changedAt: Date
+- createdAt: Date
+
+## Template Entity
+- id: uuid (PK)
+- name: string
+- content: string (with placeholders)
+- version: string
+- isActive: boolean
+- createdAt: Date
+- updatedAt: Date
+
+## Notification Entity
+- id: uuid (PK)
+- contractId: uuid (FK)
+- sellerId: uuid (FK)
+- type: ENotificationType
+- channel: ENotificationChannel
+- content: string
+- status: ENotificationStatus
+- attemptNumber: number (1-5)
+- externalId: string
+- sentAt: Date
+- deliveredAt: Date
+- createdAt: Date
+
+# Workflow Guidelines
+- Follow the contract lifecycle properly:
+  1. Create seller if not exists
+  2. Create contract in DRAFT state
+  3. Send to signature (transition to PENDING_SIGNATURE)
+  4. Send first notification
+  5. Send reminders every 5 days (max 5 attempts)
+  6. Handle signature or expiration
+- Track all status changes
+- Implement proper scheduled tasks
+- Handle edge cases gracefully
+
+# Integration Guidelines
+## Brasil API
+- Format CNPJ properly (remove special characters)
+- Handle API errors and rate limits
+- Map response to seller entity
+
+## Autentique
+- Implement GraphQL mutations correctly
+- Handle file upload properly
+- Process webhooks for status updates
+
+## WhatsApp API
+- Format phone numbers correctly
+- Handle sending errors
+- Track message delivery status
+
+# Prohibited Practices
+- Don't use any without explicit reason
+- Avoid duplicate code
+- Don't expose internal implementation details
+- No hardcoded credentials
+- Avoid nested conditionals (more than 2 levels)
+- No commented out code in production
+- Don't catch errors without proper handling
+- No direct database queries in controllers
+- Don't use magic strings or numbers
+
+# Performance Considerations
+- Add proper indices for frequent queries
+- Implement pagination for list endpoints
+- Use caching where appropriate
+- Optimize database queries
+- Handle large datasets efficiently

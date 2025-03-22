@@ -1,0 +1,64 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:14-alpine
+    container_name: contract_management_db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: pricing_db
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - contract_management_network
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: contract_management_api
+    depends_on:
+      - postgres
+    ports:
+      - '3000:3000'
+    environment:
+      - NODE_ENV=production
+    volumes:
+      - .:/app
+      - /app/node_modules
+    networks:
+      - contract_management_network
+    secrets:
+      - db_password
+      - google_credentials
+      - jwt_secret
+      - whatsapp_api_key
+      - email_api_key
+      - sms_api_key
+      - signature_api_key
+
+volumes:
+  postgres_data:
+
+networks:
+  contract_management_network:
+    driver: bridge
+
+secrets:
+  db_password:
+    file: ./secrets/db_password.txt
+  google_credentials:
+    file: ./secrets/google_credentials.json
+  jwt_secret:
+    file: ./secrets/jwt_secret.txt
+  whatsapp_api_key:
+    file: ./secrets/whatsapp_api_key.txt
+  email_api_key:
+    file: ./secrets/email_api_key.txt
+  sms_api_key:
+    file: ./secrets/sms_api_key.txt
+  signature_api_key:
+    file: ./secrets/signature_api_key.txt
