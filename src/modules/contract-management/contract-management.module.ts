@@ -6,6 +6,7 @@ import { NotificationModule } from './notification/notification.module';
 import { PrismaModule } from '../../shared/modules/prisma.module';
 import { SecurityModule } from '../security/security.module';
 import { IntegrationModule } from '../integration/integration.module';
+import { UpdateSellersCommand } from './commands/update-sellers.command';
 
 @Module({
   imports: [
@@ -17,5 +18,6 @@ import { IntegrationModule } from '../integration/integration.module';
     NotificationModule,
     IntegrationModule,
   ],
+  providers: [UpdateSellersCommand],
 })
 export class ContractManagementModule {}

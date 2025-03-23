@@ -7,23 +7,34 @@ import { EStatusChangeReason } from '../enums/status-change-reason.enum';
 import { SellerService } from '../../seller/services/seller.service';
 import { IContractService } from '../interfaces/contract-service.interface';
 import { ContractResponseDto } from '../dtos/contract-response.dto';
+import { ContractTemplateService } from '../../template/services/contract-template.service';
+import { ContractDataDto } from '../dtos/contract-data.dto';
 
 @Injectable()
 export class ContractService implements IContractService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly sellerService: SellerService,
+    private readonly contractTemplateService: ContractTemplateService,
   ) {}
 
-  async create(createContractDto: CreateContractDto): Promise<ContractResponseDto> {
+  async create(
+    createContractDto: CreateContractDto,
+    contractData: ContractDataDto,
+  ): Promise<ContractResponseDto> {
     await this.sellerService.findOne(createContractDto.sellerId);
+
+    const content = await this.contractTemplateService.generateContract(
+      createContractDto.sellerId,
+      contractData,
+    );
 
     const contract = await this.prisma.contracts.create({
       data: {
         seller_id: createContractDto.sellerId,
         template_id: createContractDto.templateId,
         status: EContractStatus.DRAFT,
-        content: createContractDto.content,
+        content,
         expires_at: createContractDto.expiresAt,
       },
     });
@@ -37,7 +48,7 @@ export class ContractService implements IContractService {
         templates: true,
       },
     });
-    return contracts.map(contract => this.mapToResponseDto(contract));
+    return contracts.map((contract) => this.mapToResponseDto(contract));
   }
 
   async findOne(id: string): Promise<ContractResponseDto> {
@@ -111,7 +122,7 @@ export class ContractService implements IContractService {
         templates: true,
       },
     });
-    return contracts.map(contract => this.mapToResponseDto(contract));
+    return contracts.map((contract) => this.mapToResponseDto(contract));
   }
 
   async findByStatus(status: EContractStatus): Promise<ContractResponseDto[]> {
@@ -122,7 +133,7 @@ export class ContractService implements IContractService {
         templates: true,
       },
     });
-    return contracts.map(contract => this.mapToResponseDto(contract));
+    return contracts.map((contract) => this.mapToResponseDto(contract));
   }
 
   async findExpired(): Promise<ContractResponseDto[]> {
@@ -140,7 +151,7 @@ export class ContractService implements IContractService {
         templates: true,
       },
     });
-    return contracts.map(contract => this.mapToResponseDto(contract));
+    return contracts.map((contract) => this.mapToResponseDto(contract));
   }
 
   async findPendingSignature(): Promise<ContractResponseDto[]> {
@@ -156,7 +167,7 @@ export class ContractService implements IContractService {
         templates: true,
       },
     });
-    return contracts.map(contract => this.mapToResponseDto(contract));
+    return contracts.map((contract) => this.mapToResponseDto(contract));
   }
 
   async cancel(id: string, reason: string): Promise<ContractResponseDto> {

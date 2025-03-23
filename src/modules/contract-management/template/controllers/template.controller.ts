@@ -4,11 +4,15 @@ import { TemplateService } from '../services/template.service';
 import { CreateTemplateDto } from '../dtos/create-template.dto';
 import { UpdateTemplateDto } from '../dtos/update-template.dto';
 import { TemplateResponseDto } from '../dtos/template-response.dto';
+import { ContractTemplateService } from '../services/contract-template.service';
 
 @ApiTags('templates')
 @Controller('templates')
 export class TemplateController {
-  constructor(private readonly templateService: TemplateService) {}
+  constructor(
+    private readonly templateService: TemplateService,
+    private readonly contractTemplateService: ContractTemplateService,
+  ) {}
 
   @Post()
   @ApiOperation({ summary: 'Criar um novo template' })
@@ -78,5 +82,13 @@ export class TemplateController {
   @ApiResponse({ status: 404, description: 'Template não encontrado' })
   async remove(@Param('id') id: string): Promise<void> {
     await this.templateService.remove(id);
+  }
+
+  @Post('init')
+  @ApiOperation({ summary: 'Inicializar template padrão' })
+  @ApiResponse({ status: 201, description: 'Template inicializado com sucesso' })
+  async initDefaultTemplate() {
+    await this.contractTemplateService.createTemplate();
+    return { message: 'Template inicializado com sucesso' };
   }
 }

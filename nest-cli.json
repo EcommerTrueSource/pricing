@@ -10,8 +10,13 @@
       {
         "include": "**/*.json",
         "outDir": "dist/src"
+      },
+      {
+        "include": "modules/contract-management/template/templates/**/*",
+        "outDir": "dist/src",
+        "watchAssets": true
       }
     ],
-    "watchAssets": true
+    "webpackConfigPath": "webpack.config.cjs"
   }
 }
