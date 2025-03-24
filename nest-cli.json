@@ -16,7 +16,6 @@
         "outDir": "dist/src",
         "watchAssets": true
       }
-    ],
-    "webpackConfigPath": "webpack.config.cjs"
+    ]
   }
 }

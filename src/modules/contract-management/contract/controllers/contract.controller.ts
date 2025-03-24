@@ -278,7 +278,7 @@ export class ContractController {
   async previewTemplate(@Body() contractData: ContractDataDto, @Res() res: Response) {
     console.log('Preview template - Dados recebidos:', contractData);
     try {
-      const content = await this.contractTemplateService.generateContract('preview', contractData);
+      const content = await this.contractTemplateService.generateContract(contractData);
       console.log('Preview template - Conteúdo gerado com sucesso');
       res.setHeader('Content-Type', 'text/html');
       res.send(content);
@@ -312,7 +312,7 @@ export class ContractController {
   async downloadTemplate(@Body() contractData: ContractDataDto, @Res() res: Response) {
     console.log('Download template - Dados recebidos:', contractData);
     try {
-      const content = await this.contractTemplateService.generateContract('preview', contractData);
+      const content = await this.contractTemplateService.generateContract(contractData);
       console.log('Download template - Conteúdo gerado com sucesso');
 
       const browser = await puppeteer.launch({

@@ -1,173 +1,89 @@
-import { Controller, Post, Body, Res } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiBody } from '@nestjs/swagger';
-import { Response } from 'express';
-import * as puppeteer from 'puppeteer';
-import { ContractTemplateService } from '../services/contract-template.service';
-import { ContractDataDto } from '../../contract/dtos/contract-data.dto';
+import { Controller, Get, HttpException, HttpStatus, Logger } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
+import { ConfigService } from '@nestjs/config';
+import { GoogleDocsService } from '../services/google-docs.service';
 
-@ApiTags('templates-preview')
-@Controller('templates-preview')
+@ApiTags('templates')
+@Controller('templates/preview')
 export class TemplatePreviewController {
-  constructor(private readonly contractTemplateService: ContractTemplateService) {}
+  private readonly logger = new Logger(TemplatePreviewController.name);
+  private readonly documentId: string;
 
-  @Post('preview')
-  @ApiOperation({ summary: 'Visualizar template do contrato' })
-  @ApiResponse({ status: 200, description: 'Retorna o HTML do template' })
-  @ApiBody({
-    type: ContractDataDto,
-    examples: {
-      example1: {
-        value: {
-          contractNumber: '123',
-          companyName: 'Empresa Teste',
-          companyCnpj: '12345678901234',
-          companyAddress: 'Rua Teste, 123',
-          contractDuration: 12,
-          commissionRate: 5,
-          paymentDay: 5,
-          jurisdiction: 'São Paulo',
-          city: 'São Paulo',
-        },
-      },
-    },
-  })
-  async previewTemplate(@Body() contractData: ContractDataDto, @Res() res: Response) {
-    console.log('Preview template - Dados recebidos:', contractData);
+  constructor(
+    private readonly configService: ConfigService,
+    private readonly googleDocsService: GoogleDocsService,
+  ) {
+    const docId = this.configService.get<string>('GOOGLE_DOC_ID');
+    if (!docId) {
+      throw new Error('ID do documento do Google Docs não configurado');
+    }
+    this.documentId = docId;
+  }
+
+  @Get('mock')
+  @ApiOperation({ summary: 'Visualizar template com dados mockados' })
+  @ApiResponse({ status: 200, description: 'URL para preview do template com dados mockados' })
+  @ApiResponse({ status: 400, description: 'Erro ao gerar preview mockado' })
+  async previewMockTemplate() {
     try {
-      const content = await this.contractTemplateService.generateContract('preview', contractData);
-      console.log('Preview template - Conteúdo gerado com sucesso');
+      if (!this.documentId) {
+        throw new HttpException('ID do documento não configurado', HttpStatus.BAD_REQUEST);
+      }
 
-      // Envia o HTML com o Content-Security-Policy adequado
-      res.setHeader('Content-Type', 'text/html');
-      res.setHeader(
-        'Content-Security-Policy',
-        "default-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data: https://fonts.gstatic.com",
+      // Dados mockados para o template
+      const mockData = {
+        seller: {
+          name: 'Vendedor Exemplo LTDA',
+          cnpj: '12.345.678/0001-90',
+          address: 'Rua Exemplo, 123 - São Paulo/SP',
+        },
+        date: new Date().toLocaleDateString('pt-BR', {
+          timeZone: 'America/Sao_Paulo',
+          day: 'numeric',
+          month: 'long',
+          year: 'numeric',
+        }),
+      };
+
+      // Criar uma cópia do documento com os dados mockados
+      const filledDocId = await this.googleDocsService.createFilledTemplate(
+        this.documentId,
+        mockData,
       );
-      res.send(`
-        <!DOCTYPE html>
-        <html>
-          <head>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>Preview do Contrato</title>
-            <style>
-              body {
-                margin: 0;
-                padding: 20px;
-                font-family: Arial, sans-serif;
-              }
-              .preview-container {
-                max-width: 210mm;
-                margin: 0 auto;
-                background: white;
-                box-shadow: 0 0 10px rgba(0,0,0,0.1);
-                padding: 20mm;
-              }
-              @media print {
-                body {
-                  padding: 0;
-                }
-                .preview-container {
-                  box-shadow: none;
-                  padding: 0;
-                }
-              }
-            </style>
-          </head>
-          <body>
-            <div class="preview-container">
-              ${content}
-            </div>
-          </body>
-        </html>
-      `);
-    } catch (error) {
-      console.error('Preview template - Erro:', error);
-      throw error;
+
+      // URL para visualização do documento preenchido
+      const downloadUrl = `https://docs.google.com/document/d/${filledDocId}/export?format=pdf`;
+
+      return { downloadUrl };
+    } catch (error: unknown) {
+      this.logger.error('Erro ao gerar preview mockado:', error);
+      throw new HttpException(
+        error instanceof Error ? error.message : 'Erro ao gerar preview mockado',
+        HttpStatus.BAD_REQUEST,
+      );
     }
   }
 
-  @Post('download')
-  @ApiOperation({ summary: 'Baixar template do contrato em PDF' })
-  @ApiResponse({ status: 200, description: 'Retorna o PDF do template' })
-  @ApiBody({
-    type: ContractDataDto,
-    examples: {
-      example1: {
-        value: {
-          contractNumber: '123',
-          companyName: 'Empresa Teste',
-          companyCnpj: '12345678901234',
-          companyAddress: 'Rua Teste, 123',
-          contractDuration: 12,
-          commissionRate: 5,
-          paymentDay: 5,
-          jurisdiction: 'São Paulo',
-          city: 'São Paulo',
-        },
-      },
-    },
-  })
-  async downloadTemplate(@Body() contractData: ContractDataDto, @Res() res: Response) {
-    console.log('Download template - Dados recebidos:', contractData);
+  @Get('download')
+  @ApiOperation({ summary: 'Baixar template ativo em PDF' })
+  @ApiResponse({ status: 200, description: 'URL para download do PDF' })
+  @ApiResponse({ status: 400, description: 'Erro ao gerar URL de download' })
+  async downloadTemplate() {
     try {
-      const content = await this.contractTemplateService.generateContract('preview', contractData);
-      console.log('Download template - Conteúdo gerado com sucesso');
+      if (!this.documentId) {
+        throw new HttpException('ID do documento não configurado', HttpStatus.BAD_REQUEST);
+      }
 
-      const browser = await puppeteer.launch({
-        headless: true,
-        args: ['--no-sandbox', '--disable-setuid-sandbox'],
-      });
-      const page = await browser.newPage();
+      // URL para download direto do PDF
+      const downloadUrl = `https://docs.google.com/document/d/${this.documentId}/export?format=pdf`;
 
-      // Configura o conteúdo com estilos adequados
-      await page.setContent(`
-        <!DOCTYPE html>
-        <html>
-          <head>
-            <meta charset="UTF-8">
-            <style>
-              body {
-                margin: 0;
-                padding: 20mm;
-                font-family: Arial, sans-serif;
-              }
-              @page {
-                size: A4;
-                margin: 20mm;
-              }
-              @media print {
-                body {
-                  padding: 0;
-                }
-              }
-            </style>
-          </head>
-          <body>
-            ${content}
-          </body>
-        </html>
-      `);
-
-      // Aguarda o carregamento completo
-      await page.evaluateHandle('document.fonts.ready');
-
-      const pdf = await page.pdf({
-        format: 'A4',
-        printBackground: true,
-        preferCSSPageSize: true,
-        displayHeaderFooter: false,
-      });
-
-      await browser.close();
-      console.log('Download template - PDF gerado com sucesso');
-
-      res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader('Content-Disposition', 'attachment; filename=template-contrato.pdf');
-      res.send(pdf);
-    } catch (error) {
-      console.error('Download template - Erro:', error);
-      throw error;
+      return { downloadUrl };
+    } catch (error: unknown) {
+      this.logger.error('Erro ao gerar URL de download:', error);
+      throw new HttpException(
+        error instanceof Error ? error.message : 'Erro ao gerar URL de download',
+        HttpStatus.BAD_REQUEST,
+      );
     }
   }
 }

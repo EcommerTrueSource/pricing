@@ -3,6 +3,7 @@ import { PrismaService } from '../../../../shared/services/prisma.service';
 import { CreateTemplateDto } from '../dtos/create-template.dto';
 import { UpdateTemplateDto } from '../dtos/update-template.dto';
 import { TemplateResponseDto } from '../dtos/template-response.dto';
+import { validate as isValidUUID } from 'uuid';
 
 @Injectable()
 export class TemplateService {
@@ -40,10 +41,14 @@ export class TemplateService {
 
   async findAll(): Promise<TemplateResponseDto[]> {
     const templates = await this.prisma.templates.findMany();
-    return templates.map(template => this.mapToResponseDto(template));
+    return templates.map((template) => this.mapToResponseDto(template));
   }
 
   async findOne(id: string): Promise<TemplateResponseDto> {
+    if (!isValidUUID(id)) {
+      throw new BadRequestException('ID do template inválido');
+    }
+
     const template = await this.prisma.templates.findUnique({
       where: { id },
     });
@@ -56,6 +61,10 @@ export class TemplateService {
   }
 
   async update(id: string, updateTemplateDto: UpdateTemplateDto): Promise<TemplateResponseDto> {
+    if (!isValidUUID(id)) {
+      throw new BadRequestException('ID do template inválido');
+    }
+
     try {
       if (
         updateTemplateDto.version &&
@@ -78,11 +87,18 @@ export class TemplateService {
       });
       return this.mapToResponseDto(template);
     } catch (error) {
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
       throw new NotFoundException(`Template com ID ${id} não encontrado`);
     }
   }
 
   async remove(id: string) {
+    if (!isValidUUID(id)) {
+      throw new BadRequestException('ID do template inválido');
+    }
+
     try {
       return await this.prisma.templates.delete({
         where: { id },
@@ -96,7 +112,7 @@ export class TemplateService {
     const templates = await this.prisma.templates.findMany({
       where: { is_active: true },
     });
-    return templates.map(template => this.mapToResponseDto(template));
+    return templates.map((template) => this.mapToResponseDto(template));
   }
 
   async findLatestVersion(): Promise<TemplateResponseDto> {

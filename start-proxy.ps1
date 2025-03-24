@@ -53,4 +53,4 @@ try {
 } catch {
     Write-Host "ERRO ao iniciar Cloud SQL Proxy: $_"
     exit 1
-} 
+}

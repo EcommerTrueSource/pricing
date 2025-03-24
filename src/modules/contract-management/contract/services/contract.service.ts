@@ -24,10 +24,21 @@ export class ContractService implements IContractService {
   ): Promise<ContractResponseDto> {
     await this.sellerService.findOne(createContractDto.sellerId);
 
-    const content = await this.contractTemplateService.generateContract(
-      createContractDto.sellerId,
-      contractData,
-    );
+    const templateData = {
+      seller: {
+        name: contractData.companyName,
+        cnpj: contractData.companyCnpj,
+        address: contractData.companyAddress,
+      },
+      contractNumber: contractData.contractNumber,
+      contractDuration: contractData.contractDuration,
+      commissionRate: contractData.commissionRate,
+      paymentDay: contractData.paymentDay,
+      jurisdiction: contractData.jurisdiction,
+      city: contractData.city,
+    };
+
+    const content = await this.contractTemplateService.generateContract(templateData);
 
     const contract = await this.prisma.contracts.create({
       data: {

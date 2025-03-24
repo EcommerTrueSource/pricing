@@ -11,6 +11,7 @@ yarn-error.log
 .env.production
 .env.*
 !.env.example
+credentials.json
 
 # Arquivos de build
 dist/
