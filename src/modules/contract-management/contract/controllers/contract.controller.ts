@@ -33,6 +33,7 @@ import { Roles } from '../../../security/decorators/roles.decorator';
 import { Response } from 'express';
 import * as puppeteer from 'puppeteer';
 import { ContractTemplateService } from '../../template/services/contract-template.service';
+import { UpdateContractByCnpjDto } from '../dtos/update-contract-by-cnpj.dto';
 
 @ApiTags('contratos')
 @ApiBearerAuth()
@@ -343,5 +344,27 @@ export class ContractController {
       console.error('Download template - Erro:', error);
       throw error;
     }
+  }
+
+  @Post('update-by-cnpj')
+  @Roles('ADMIN', 'MANAGER')
+  @ApiOperation({ summary: 'Atualiza os dados de um contrato pelo CNPJ do seller' })
+  @ApiResponse({
+    status: 200,
+    description: 'Contrato atualizado com sucesso',
+    type: ContractResponseDto,
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Seller ou contrato não encontrado',
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Acesso negado - Necessário role ADMIN ou MANAGER',
+  })
+  async updateContractByCnpj(
+    @Body() updateContractByCnpjDto: UpdateContractByCnpjDto,
+  ): Promise<ContractResponseDto> {
+    return this.contractService.updateContractByCnpj(updateContractByCnpjDto.cnpj);
   }
 }

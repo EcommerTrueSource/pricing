@@ -1,6 +1,99 @@
 # Sistema de Gerenciamento de Contratos
 
-Sistema desenvolvido em NestJS para gerenciamento de contratos, com suporte a múltiplos canais de notificação e assinatura digital.
+Sistema de gerenciamento de contratos com integração Autentique para assinatura digital.
+
+## Requisitos
+
+- Node.js 18+
+- PostgreSQL 14+
+- NPM ou Yarn
+
+## Instalação
+
+1. Clone o repositório:
+```bash
+git clone https://github.com/seu-usuario/contract-management.git
+cd contract-management
+```
+
+2. Instale as dependências:
+```bash
+npm install
+```
+
+3. Configure as variáveis de ambiente:
+- Copie o arquivo `.env.example` para `.env`
+- Preencha as variáveis necessárias:
+  - `AUTENTIQUE_API_URL`: URL da API do Autentique
+  - `AUTENTIQUE_API_KEY`: Chave de API do Autentique
+  - `DATABASE_URL`: URL de conexão com o banco de dados
+
+4. Execute as migrações do banco de dados:
+```bash
+npm run migration:run
+```
+
+## Executando o Projeto
+
+1. Em desenvolvimento:
+```bash
+npm run start:dev
+```
+
+2. Em produção:
+```bash
+npm run build
+npm run start
+```
+
+## Estrutura do Projeto
+
+```
+src/
+├── modules/
+│   ├── contract-management/
+│   │   ├── controllers/
+│   │   ├── services/
+│   │   ├── entities/
+│   │   └── dtos/
+│   └── integration/
+│       └── autentique/
+│           ├── services/
+│           ├── interfaces/
+│           └── autentique.module.ts
+├── config/
+└── main.ts
+```
+
+## Funcionalidades
+
+- Gerenciamento de contratos
+- Integração com Autentique para assinatura digital
+- Rate limiting para chamadas à API
+- Validação de dados
+- Logging de erros
+
+## Testes
+
+```bash
+# Testes unitários
+npm run test
+
+# Testes e2e
+npm run test:e2e
+```
+
+## Contribuindo
+
+1. Faça um fork do projeto
+2. Crie uma branch para sua feature (`git checkout -b feature/AmazingFeature`)
+3. Commit suas mudanças (`git commit -m 'Add some AmazingFeature'`)
+4. Push para a branch (`git push origin feature/AmazingFeature`)
+5. Abra um Pull Request
+
+## Licença
+
+Este projeto está sob a licença MIT. Veja o arquivo [LICENSE](LICENSE) para mais detalhes.
 
 ## 🚀 Funcionalidades
 
@@ -162,94 +255,4 @@ npx prisma migrate deploy
 
 7. Inicie o servidor:
 
-```bash
-npm run start:dev
 ```
-
-## 📚 Documentação da API
-
-A documentação da API está disponível através do Swagger UI em:
-
-```
-http://localhost:3000/api
-```
-
-## 🔐 Autenticação e Autorização
-
-O sistema utiliza JWT para autenticação e implementa controle de acesso baseado em roles:
-
-- **ADMIN**: Acesso total ao sistema
-- **MANAGER**: Acesso de leitura e algumas operações de escrita
-- **USER**: Apenas acesso de leitura
-
-Para autenticar, inclua o token JWT no header:
-
-```
-Authorization: Bearer seu-token-jwt
-```
-
-## 🧪 Testes
-
-Execute os testes:
-
-```bash
-npm run test
-# ou
-yarn test
-```
-
-Para cobertura de testes:
-
-```bash
-npm run test:cov
-# ou
-yarn test:cov
-```
-
-## 📦 Estrutura do Projeto
-
-```
-src/
-├── modules/
-│   ├── contract-management/
-│   │   ├── contract/
-│   │   ├── seller/
-│   │   ├── template/
-│   │   ├── notification/
-│   │   └── integrations/
-│   ├── integration/
-│   │   └── brasil-api/
-│   └── security/
-│       ├── decorators/
-│       ├── guards/
-│       └── security.module.ts
-├── shared/
-│   ├── modules/
-│   │   └── prisma.module.ts
-│   └── services/
-│       └── prisma.service.ts
-└── app.module.ts
-```
-
-## 🤝 Contribuindo
-
-1. Faça um fork do projeto
-2. Crie uma branch para sua feature (`git checkout -b feature/AmazingFeature`)
-3. Commit suas mudanças (`git commit -m 'Add some AmazingFeature'`)
-4. Push para a branch (`git push origin feature/AmazingFeature`)
-5. Abra um Pull Request
-
-## 📄 Licença
-
-Este projeto está sob a licença MIT. Veja o arquivo [LICENSE](LICENSE) para mais detalhes.
-## 👥 Autores
-
-- Gabriel Nascimento - [@gabrielnfc](https://github.com/gabrielnfc)
-
-## 🙏 Agradecimentos
-
-- NestJS Team
-- Prisma Team
-- Brasil API Team
-- Todos os contribuidores
-

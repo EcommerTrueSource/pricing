@@ -7,6 +7,8 @@ import { PrismaModule } from '../../shared/modules/prisma.module';
 import { SecurityModule } from '../security/security.module';
 import { IntegrationModule } from '../integration/integration.module';
 import { UpdateSellersCommand } from './commands/update-sellers.command';
+import { AutentiqueModule } from '../integration/autentique/autentique.module';
+import { UpdateAllContractsCommand } from './commands/update-all-contracts.command';
 
 @Module({
   imports: [
@@ -17,7 +19,8 @@ import { UpdateSellersCommand } from './commands/update-sellers.command';
     TemplateModule,
     NotificationModule,
     IntegrationModule,
+    AutentiqueModule,
   ],
-  providers: [UpdateSellersCommand],
+  providers: [UpdateSellersCommand, UpdateAllContractsCommand],
 })
 export class ContractManagementModule {}

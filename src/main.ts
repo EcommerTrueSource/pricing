@@ -35,6 +35,7 @@ async function bootstrap() {
     .addTag('contratos', 'Endpoints para gestão de contratos')
     .addTag('templates', 'Endpoints para gestão de templates de contratos')
     .addTag('notificações', 'Endpoints para gestão de notificações')
+    .addTag('Autentique', 'Endpoints para integração com o Autentique')
     .build();
 
   const document = SwaggerModule.createDocument(app, config);
