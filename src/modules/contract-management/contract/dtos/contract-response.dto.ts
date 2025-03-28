@@ -40,4 +40,7 @@ export class ContractResponseDto {
 
   @ApiProperty({ description: 'Data de atualização do registro' })
   updatedAt!: Date;
+
+  contractsDeleted: number;
+  hasMultipleContracts: boolean;
 }

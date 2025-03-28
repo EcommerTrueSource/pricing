@@ -103,7 +103,6 @@ enum contract_status {
 }
 
 enum notification_channel {
-  EMAIL
   WHATSAPP
 }
 

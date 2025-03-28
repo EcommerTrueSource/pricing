@@ -1,11 +1,12 @@
 import { Module } from '@nestjs/common';
-import { BrasilApiService } from './services/brasil-api.service';
+import { ConfigModule } from '@nestjs/config';
 import { WhatsAppService } from './services/whatsapp.service';
-import { EmailService } from './services/email.service';
-import { SMSService } from './services/sms.service';
+import { RateLimiterService } from '../../shared/services/rate-limiter.service';
+import { ValidationService } from '../../shared/services/validation.service';
 
 @Module({
-  providers: [BrasilApiService, WhatsAppService, EmailService, SMSService],
-  exports: [BrasilApiService, WhatsAppService, EmailService, SMSService],
+    imports: [ConfigModule],
+    providers: [WhatsAppService, RateLimiterService, ValidationService],
+    exports: [WhatsAppService],
 })
 export class IntegrationModule {}

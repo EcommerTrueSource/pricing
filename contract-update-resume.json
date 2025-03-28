@@ -1,0 +1,154 @@
+{
+  "total": 1413,
+  "processed": 1412,
+  "success": 1390,
+  "failed": 22,
+  "lastProcessedCnpj": "90682923000244",
+  "contractsDeleted": 1171,
+  "contractsWithMultipleVersions": 0,
+  "failedDeletions": 8,
+  "errors": [
+    {
+      "excluido": true,
+      "cnpj": "14270927000156",
+      "razaoSocial": "J E SUPLEMENTOS LTDA",
+      "error": "Request failed with status code 429"
+    },
+    {
+      "excluido": true,
+      "cnpj": "14468185000178",
+      "razaoSocial": "E. DE SOUZA E SILVA LTDA",
+      "error": "Request failed with status code 429"
+    },
+    {
+      "excluido": true,
+      "cnpj": "21466063000108",
+      "razaoSocial": "ESPACO VIVA BEM PRODUTOS NATURAIS LTDA",
+      "error": "Request failed with status code 429"
+    },
+    {
+      "excluido": true,
+      "cnpj": "21491658000113",
+      "razaoSocial": "MAURICIO A C COMERCIO VAREJISTA DE PRODUTOS NATURAIS LTDA",
+      "error": "Request failed with status code 429"
+    },
+    {
+      "excluido": true,
+      "cnpj": "28088475000109",
+      "razaoSocial": "NATU & FIT LTDA",
+      "error": "Request failed with status code 429"
+    },
+    {
+      "excluido": true,
+      "cnpj": "30187167000174",
+      "razaoSocial": "L BUSATTO MARINHO COMERCIO",
+      "error": "Request failed with status code 429"
+    },
+    {
+      "excluido": true,
+      "cnpj": "36371652000180",
+      "razaoSocial": "C&R ALIMENTOS SAUDAVEIS LTDA",
+      "error": "Request failed with status code 429"
+    },
+    {
+      "excluido": true,
+      "cnpj": "36391787000107",
+      "razaoSocial": "DROGARIA NICHIO LTDA",
+      "error": "Request failed with status code 429"
+    },
+    {
+      "excluido": true,
+      "cnpj": "36439301000163",
+      "razaoSocial": "DISTRINOVA COMERCIO ATACADISTA DE ALIMENTICIOS LTDA",
+      "error": "Request failed with status code 429"
+    },
+    {
+      "excluido": true,
+      "cnpj": "36488743000108",
+      "razaoSocial": "BODY BUILDER NUTRICAO ESPORTIVA LTDA",
+      "error": "Request failed with status code 429"
+    },
+    {
+      "excluido": true,
+      "cnpj": "36533654000128",
+      "razaoSocial": "BENTO COMERCIO DE PRODUTOS ALIMENTICIOS LTDA",
+      "error": "Request failed with status code 429"
+    },
+    {
+      "excluido": true,
+      "cnpj": "36537956000174",
+      "razaoSocial": "DINK INC BARRA SUPLEMENTOS ALIMENTARES LTDA",
+      "error": "Request failed with status code 429"
+    },
+    {
+      "excluido": true,
+      "cnpj": "38013977000116",
+      "razaoSocial": "MIGUEL CASTOR COMERCIO DE PRODUTOS ALIMENTICIOS LTDA",
+      "error": "Request failed with status code 429"
+    },
+    {
+      "excluido": true,
+      "cnpj": "39822002000100",
+      "razaoSocial": "DROGARIA MARTINS CATARINA LTDA",
+      "error": "Request failed with status code 429"
+    },
+    {
+      "excluido": true,
+      "cnpj": "39843533000170",
+      "razaoSocial": "39.843.533 VIRGINIA APARECIDA DE OLIVEIRA LINO",
+      "error": "Request failed with status code 429"
+    },
+    {
+      "excluido": true,
+      "cnpj": "39852829000158",
+      "razaoSocial": "ARMAZEM SALUTE PRODUTOS NATURAIS LTDA",
+      "error": "Request failed with status code 429"
+    },
+    {
+      "excluido": true,
+      "cnpj": "43841554000124",
+      "razaoSocial": "N COSTA ALVES LTDA",
+      "error": "Request failed with status code 429"
+    },
+    {
+      "excluido": true,
+      "cnpj": "43879338000178",
+      "razaoSocial": "G L S LINHARES GOURMET FIT",
+      "error": "Request failed with status code 429"
+    },
+    {
+      "excluido": true,
+      "cnpj": "43921644000125",
+      "razaoSocial": "ADS COMERCIO DE PRODUTOS NATURAIS LTDA",
+      "error": "Request failed with status code 429"
+    },
+    {
+      "excluido": true,
+      "cnpj": "43922481000286",
+      "razaoSocial": "P H V MOTA",
+      "error": "Request failed with status code 429"
+    },
+    {
+      "excluido": true,
+      "cnpj": "43943536000153",
+      "razaoSocial": "ELDONAVE COMERCIO DE PRODUTOS NATURAIS LTDA",
+      "error": "Request failed with status code 429"
+    },
+    {
+      "excluido": true,
+      "cnpj": "55378191000111",
+      "razaoSocial": "NABOA ALIMENTOS LTDA",
+      "error": "Request failed with status code 429"
+    }
+  ],
+  "summary": {
+    "totalSellers": 1413,
+  "sellersWithMultipleContracts": 0,
+  "contractsDeleted": 1171,
+  "contractsKept": 1391,
+  "failedDeletions": 8,
+  "startTime": "2025-03-27T13:15:00.541Z",
+  "endTime": "2025-03-27T14:14:49.828Z",
+  "duration": "0h 59m 49s"
+  }
+}

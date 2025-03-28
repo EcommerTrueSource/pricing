@@ -152,76 +152,84 @@ export class AutentiqueService implements IAutentiqueService {
     }
   }
 
-  async findDocumentBySellerCnpj(cnpj: string): Promise<IAutentiqueDocument | null> {
-    await this.rateLimiter.consume('autentique-api');
+  async findDocumentBySellerCnpj(cnpj: string): Promise<IAutentiqueDocument[]> {
+    // Formata o CNPJ antes de usar na busca
+    const formattedCnpj = this.formatCnpj(cnpj);
+    const searchTerm = `Contrato PMA True Brands - ${formattedCnpj}`;
+    this.logger.debug(`[${cnpj}] 🔍 Buscando documentos com termo: "${searchTerm}"`);
 
-    try {
-      const formattedCnpj = this.formatCnpj(cnpj);
-      this.logger.debug(`Buscando documento com nome: Contrato PMA True Brands - ${formattedCnpj}`);
+    const query = `
+      fragment event on Event {
+        ip
+        port
+        reason
+        created_at
+        geolocation {
+          country
+          countryISO
+          state
+          stateISO
+          city
+          zipcode
+          latitude
+          longitude
+        }
+      }
 
-      const query = `
-        query {
-          documents(limit: 10, page: 1, name: "Contrato PMA True Brands - ${formattedCnpj}") {
-            data {
-              id
+      query {
+        documents(limit: 10, page: 1, name: "${searchTerm}") {
+          data {
+            id
+            name
+            refusable
+            sortable
+            created_at
+            files { original signed pades }
+            signatures {
+              public_id
               name
-              signed_count
+              email
               created_at
-              updated_at
-              expiration_at
-              signatures {
-                name
-                email
-                link {
-                  short_link
-                }
+              action { name }
+              link { short_link }
+              user { id name email phone }
+              user_data { name email phone }
+              email_events {
+                sent
+                opened
+                delivered
+                refused
+                reason
               }
+              viewed { ...event }
+              signed { ...event }
+              rejected { ...event }
             }
           }
         }
-      `;
+      }
+    `;
 
+    try {
       const response = await this.makeGraphQLRequest(query);
-      const documents = response?.data?.documents?.data || [];
+
+      // Verifica se a resposta tem a estrutura esperada
+      if (!response?.data?.documents?.data) {
+        this.logger.debug(`[${cnpj}] ℹ️ Nenhum documento encontrado`);
+        return [];
+      }
+
+      const documents = response.data.documents.data;
 
       if (documents.length === 0) {
-        this.logger.debug(`Nenhum documento encontrado para o CNPJ ${cnpj}`);
-        return null;
+        this.logger.debug(`[${cnpj}] ℹ️ Nenhum documento encontrado`);
+        return [];
       }
 
-      const document = documents[0];
-      this.logger.debug(`Documento encontrado: ${document.id}`);
-
-      return {
-        id: document.id,
-        name: document.name,
-        status:
-          document.signed_count > 0
-            ? AutentiqueDocumentStatus.SIGNED
-            : AutentiqueDocumentStatus.PENDING,
-        signed_count: document.signed_count || 0,
-        signedAt: null,
-        expiresAt: document.expiration_at,
-        createdAt: new Date(document.created_at),
-        updatedAt: new Date(document.updated_at),
-        signatures: document.signatures.map((signature) => ({
-          name: signature.name,
-          email: signature.email,
-          status: AutentiqueDocumentStatus.PENDING,
-          signedAt: null,
-          signingUrl: signature.link?.short_link || null,
-        })),
-      };
+      this.logger.debug(`[${cnpj}] 📄 Encontrados ${documents.length} documentos`);
+      return documents;
     } catch (error) {
-      this.logger.error(`Erro ao buscar documento por CNPJ ${cnpj}: ${error.message}`);
-      this.logger.error('Detalhes do erro:', error);
-      this.logger.error(`Detalhes do erro: ${JSON.stringify(error.response?.data, null, 2)}`);
-
-      if (error.response?.status === 401) {
-        this.logger.error(
-          'Erro de autenticação com a API do Autentique. Verifique se a chave de API está correta.',
-        );
-      }
+      this.logger.error(`[${cnpj}] ❌ Erro ao buscar documentos:`, error);
       throw error;
     }
   }
@@ -230,30 +238,134 @@ export class AutentiqueService implements IAutentiqueService {
     await this.rateLimiter.consume('autentique-api');
 
     try {
-      const query = `query {
-        document(id: "${documentId}") {
-          id
-          name
-          status
+      const query = `
+        fragment event on Event {
+          ip
+          port
+          reason
           created_at
-          updated_at
-          signed_at
-          expires_at
-          signatures {
-            id
-            name
-            email
-            status
-            signed_at
-            link {
-              short_link
+          geolocation {
+            country
+            countryISO
+            state
+            stateISO
+            city
+            zipcode
+            latitude
+            longitude
+          }
+        }
+
+        query {
+          documents(limit: 1, page: 1, id: "${documentId}") {
+            data {
+              id
+              name
+              refusable
+              sortable
+              created_at
+              files { original signed pades }
+              signatures {
+                public_id
+                name
+                email
+                created_at
+                action { name }
+                link { short_link }
+                user { id name email phone }
+                user_data { name email phone }
+                email_events {
+                  sent
+                  opened
+                  delivered
+                  refused
+                  reason
+                }
+                viewed { ...event }
+                signed { ...event }
+                rejected { ...event }
+              }
             }
           }
         }
-      }`;
+      `;
 
       const response = await this.makeGraphQLRequest(query);
-      return this.mapDocumentResponse(response.data?.document);
+      const document = response.data?.documents?.data?.[0];
+
+      if (!document) {
+        throw new Error('Documento não encontrado');
+      }
+
+      return {
+        id: document.id,
+        name: document.name,
+        refusable: document.refusable,
+        sortable: document.sortable,
+        created_at: new Date(document.created_at),
+        files: document.files,
+        signatures: document.signatures.map((signature) => ({
+          public_id: signature.public_id,
+          name: signature.name,
+          email: signature.email,
+          created_at: new Date(signature.created_at),
+          action: signature.action,
+          link: signature.link,
+          user: signature.user,
+          user_data: signature.user_data,
+          email_events: signature.email_events
+            ? {
+                sent: signature.email_events.sent
+                  ? new Date(signature.email_events.sent)
+                  : undefined,
+                opened: signature.email_events.opened
+                  ? new Date(signature.email_events.opened)
+                  : undefined,
+                delivered: signature.email_events.delivered
+                  ? new Date(signature.email_events.delivered)
+                  : undefined,
+                refused: signature.email_events.refused
+                  ? new Date(signature.email_events.refused)
+                  : undefined,
+                reason: signature.email_events.reason,
+              }
+            : undefined,
+          viewed: signature.viewed
+            ? {
+                ip: signature.viewed.ip,
+                port: signature.viewed.port,
+                reason: signature.viewed.reason,
+                created_at: new Date(signature.viewed.created_at),
+                geolocation: signature.viewed.geolocation,
+              }
+            : undefined,
+          signed: signature.signed
+            ? {
+                ip: signature.signed.ip,
+                port: signature.signed.port,
+                reason: signature.signed.reason,
+                created_at: new Date(signature.signed.created_at),
+                geolocation: signature.signed.geolocation,
+              }
+            : undefined,
+          rejected: signature.rejected
+            ? {
+                ip: signature.rejected.ip,
+                port: signature.rejected.port,
+                reason: signature.rejected.reason,
+                created_at: new Date(signature.rejected.created_at),
+                geolocation: signature.rejected.geolocation,
+              }
+            : undefined,
+        })),
+        signed_count: document.signatures.filter((sig) => sig.signed).length,
+        status: this.mapStatus(document),
+        signedAt: document.signatures.find((sig) => sig.signed)?.signed?.created_at
+          ? new Date(document.signatures.find((sig) => sig.signed)?.signed?.created_at)
+          : null,
+        expiresAt: document.expires_at ? new Date(document.expires_at) : null,
+        updatedAt: new Date(),
+      };
     } catch (error) {
       this.logger.error(`Erro ao buscar documento ${documentId}: ${error.message}`);
       if (error.response?.status === 401) {
@@ -320,19 +432,33 @@ export class AutentiqueService implements IAutentiqueService {
     }
   }
 
-  private mapStatus(status: string): AutentiqueDocumentStatus {
-    switch (status.toUpperCase()) {
-      case 'DRAFT':
-        return AutentiqueDocumentStatus.PENDING;
-      case 'SIGNED':
-        return AutentiqueDocumentStatus.SIGNED;
-      case 'EXPIRED':
-        return AutentiqueDocumentStatus.EXPIRED;
-      case 'CANCELLED':
-        return AutentiqueDocumentStatus.CANCELLED;
-      default:
-        return AutentiqueDocumentStatus.PENDING;
+  mapStatus(document: any): AutentiqueDocumentStatus {
+    if (!document || !document.signatures) {
+      return AutentiqueDocumentStatus.PENDING;
     }
+
+    // Filtra apenas as assinaturas do seller (exclui Patrick Spencer)
+    const sellerSignatures = document.signatures.filter(
+      (sig) => sig && sig.email && !sig.email.includes('truebrands.com.br'),
+    );
+
+    // Se tem assinatura rejeitada do seller, documento está cancelado
+    if (sellerSignatures.some((sig) => sig.rejected)) {
+      return AutentiqueDocumentStatus.CANCELLED;
+    }
+
+    // Se tem assinatura do seller, documento está assinado
+    if (sellerSignatures.some((sig) => sig.signed)) {
+      return AutentiqueDocumentStatus.SIGNED;
+    }
+
+    // Se tem data de expiração e já passou, documento está expirado
+    if (document.expiration_at && new Date(document.expiration_at) < new Date()) {
+      return AutentiqueDocumentStatus.EXPIRED;
+    }
+
+    // Caso contrário, está pendente
+    return AutentiqueDocumentStatus.PENDING;
   }
 
   private mapDocumentResponse(data: any): IAutentiqueDocument {
@@ -349,11 +475,14 @@ export class AutentiqueService implements IAutentiqueService {
       name: data.name,
       status: data.status as AutentiqueDocumentStatus,
       signed_count: signatures.filter((sig) => sig.signedAt)?.length || 0,
-      createdAt: new Date(data.created_at),
+      created_at: new Date(data.created_at),
       updatedAt: new Date(data.updated_at),
       signedAt: data.signed_at ? new Date(data.signed_at) : null,
       expiresAt: data.expires_at ? new Date(data.expires_at) : null,
       signatures,
+      refusable: data.refusable || false,
+      sortable: data.sortable || false,
+      files: data.files || { original: null, signed: null, pades: null },
     };
   }
 
@@ -362,21 +491,24 @@ export class AutentiqueService implements IAutentiqueService {
       document.signatures?.map((signature) => ({
         name: signature.name,
         email: signature.email,
-        status: this.mapStatus(signature.status),
-        signedAt: signature.signedAt ? new Date(signature.signedAt) : null,
+        status: this.mapStatus(document),
+        signedAt: signature.signed_at ? new Date(signature.signed_at) : null,
         signingUrl: signature.signingUrl || null,
       })) || [];
 
     return {
       id: document.id,
       name: document.name,
-      status: this.mapStatus(document.status),
+      status: this.mapStatus(document),
       signed_count: signatures.filter((sig) => sig.signedAt)?.length || 0,
       signedAt: null,
-      expiresAt: document.expiresAt ? new Date(document.expiresAt) : null,
-      createdAt: new Date(),
+      expiresAt: document.expires_at ? new Date(document.expires_at) : null,
+      created_at: new Date(),
       updatedAt: new Date(),
       signatures,
+      refusable: document.refusable || false,
+      sortable: document.sortable || false,
+      files: document.files || { original: null, signed: null, pades: null },
     };
   }
 
@@ -400,26 +532,26 @@ export class AutentiqueService implements IAutentiqueService {
         try {
           this.logger.debug(`Processando seller ${seller.cnpj}...`);
 
-          const document = await this.findDocumentBySellerCnpj(seller.cnpj);
+          const documents = await this.findDocumentBySellerCnpj(seller.cnpj);
 
-          if (!document) {
+          if (documents.length === 0) {
             this.logger.debug(`Nenhum documento encontrado para o seller ${seller.cnpj}`);
             continue;
           }
 
           const contract = seller.contracts[0];
           if (contract) {
-            const newStatus = this.mapAutentiqueStatus(document.status);
+            const newStatus = this.mapAutentiqueStatus(documents[0].status);
             const statusChanged = contract.status !== newStatus;
 
             await this.prisma.contracts.update({
               where: { id: contract.id },
               data: {
-                external_id: document.id,
+                external_id: documents[0].id,
                 status: newStatus,
-                signed_at: document.signedAt,
-                updated_at: document.updatedAt,
-                signing_url: document.signatures[0]?.signingUrl || null,
+                signed_at: documents[0].signedAt,
+                updated_at: documents[0].updatedAt,
+                signing_url: documents[0].signatures[0]?.link?.short_link || null,
               },
             });
 
@@ -431,9 +563,9 @@ export class AutentiqueService implements IAutentiqueService {
                   to_status: newStatus,
                   reason: this.getStatusChangeReason(newStatus),
                   metadata: {
-                    document_id: document.id,
-                    signed_at: document.signedAt,
-                    updated_at: document.updatedAt,
+                    document_id: documents[0].id,
+                    signed_at: documents[0].signedAt,
+                    updated_at: documents[0].updatedAt,
                   },
                 },
               });
@@ -491,6 +623,22 @@ export class AutentiqueService implements IAutentiqueService {
         return status_change_reason.SENT_TO_SIGNATURE;
       default:
         return status_change_reason.CREATED;
+    }
+  }
+
+  async deleteDocument(id: string): Promise<boolean> {
+    try {
+      const mutation = `
+        mutation {
+          deleteDocument(id: "${id}")
+        }
+      `;
+
+      const response = await this.makeGraphQLRequest(mutation);
+      return !!response?.data?.deleteDocument;
+    } catch (error) {
+      this.logger.error(`❌ Erro ao deletar documento ${id}:`, error);
+      return false;
     }
   }
 }

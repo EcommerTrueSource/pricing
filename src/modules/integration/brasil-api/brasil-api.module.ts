@@ -1,10 +1,10 @@
 import { Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
+import { HttpModule } from '@nestjs/axios';
 import { BrasilApiService } from './services/brasil-api.service';
 
 @Module({
-  imports: [ConfigModule],
-  providers: [BrasilApiService],
-  exports: [BrasilApiService],
+    imports: [HttpModule],
+    providers: [BrasilApiService],
+    exports: [BrasilApiService],
 })
 export class BrasilApiModule {}

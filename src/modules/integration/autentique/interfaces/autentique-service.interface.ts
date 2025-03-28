@@ -7,5 +7,5 @@ export interface IAutentiqueService {
     content: string,
     signers: Array<{ name: string; email: string }>,
   ): Promise<IAutentiqueDocument>;
-  findDocumentBySellerCnpj(cnpj: string): Promise<IAutentiqueDocument | null>;
+  findDocumentBySellerCnpj(cnpj: string): Promise<IAutentiqueDocument[]>;
 }

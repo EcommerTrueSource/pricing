@@ -18,6 +18,8 @@
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
+    "test:whatsapp": "jest test/whatsapp.integration.spec.ts",
+    "test:whatsapp:watch": "jest test/whatsapp.integration.spec.ts --watch",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "npx prisma studio --port 5555",
@@ -25,7 +27,9 @@
     "start:proxy": "powershell -ExecutionPolicy Bypass -File start-proxy.ps1",
     "dev": "npm run start:dev",
     "command": "ts-node src/cli.ts",
-    "update:contracts": "ts-node src/commands.ts update-all-contracts"
+    "update:contracts": "ts-node src/commands.ts update-all-contracts",
+    "test:integration": "jest test/*.integration.spec.ts",
+    "test:contract-flow": "jest --config jest.config.js test/contract-flow.integration.spec.ts"
   },
   "dependencies": {
     "@babel/runtime": "^7.27.0",
@@ -100,15 +104,20 @@
       "json",
       "ts"
     ],
-    "rootDir": "src",
+    "rootDir": ".",
     "testRegex": ".*\\.spec\\.ts$",
     "transform": {
       "^.+\\.(t|j)s$": "ts-jest"
     },
     "collectCoverageFrom": [
-      "**/*.(t|j)s"
+      "src/**/*.(t|j)s"
     ],
-    "coverageDirectory": "../coverage",
-    "testEnvironment": "node"
+    "coverageDirectory": "./coverage",
+    "testEnvironment": "node",
+    "testMatch": [
+      "**/__tests__/**/*.ts",
+      "**/?(*.)+(spec|test).ts",
+      "**/test/**/*.ts"
+    ]
   }
 }

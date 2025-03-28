@@ -1,61 +1,80 @@
 import { Injectable, Logger, HttpException, HttpStatus } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import axios, { AxiosError } from 'axios';
 import { IBrasilApiResponse, ISellerData } from '../interfaces/brasil-api.interface';
+import { HttpService } from '@nestjs/axios';
+import { firstValueFrom } from 'rxjs';
+import { map } from 'rxjs/operators';
 
 @Injectable()
 export class BrasilApiService {
-  private readonly logger = new Logger(BrasilApiService.name);
-  private readonly baseUrl: string;
+    private readonly logger = new Logger(BrasilApiService.name);
+    private readonly baseUrl: string;
 
-  constructor(private readonly configService: ConfigService) {
-    const apiUrl = this.configService.get<string>('BRASIL_API_URL');
-    if (!apiUrl) {
-      throw new Error('BRASIL_API_URL não configurada');
+    constructor(
+        private readonly configService: ConfigService,
+        private readonly httpService: HttpService,
+    ) {
+        this.baseUrl = this.configService.get<string>('BRASIL_API_BASE_URL');
+        if (!this.baseUrl) {
+            throw new Error('BRASIL_API_BASE_URL não configurada');
+        }
+        this.logger.log(`BrasilApiService inicializado com baseUrl: ${this.baseUrl}`);
     }
-    this.baseUrl = apiUrl;
-  }
 
-  private formatCnpj(cnpj: string): string {
-    return cnpj.replace(/[^\d]/g, '');
-  }
-
-  private mapResponseToSellerData(response: IBrasilApiResponse): ISellerData {
-    return {
-      razaoSocial: response.razao_social,
-      endereco: {
-        logradouro: response.logradouro,
-        numero: response.numero,
-        complemento: response.complemento,
-        bairro: response.bairro,
-        municipio: response.municipio,
-        uf: response.uf,
-        cep: response.cep,
-      },
-    };
-  }
-
-  async getSellerData(cnpj: string): Promise<ISellerData> {
-    try {
-      const formattedCnpj = this.formatCnpj(cnpj);
-      const response = await axios.get<IBrasilApiResponse>(
-        `${this.baseUrl}/cnpj/v1/${formattedCnpj}`,
-      );
-
-      if (!response.data) {
-        throw new HttpException('CNPJ não encontrado na Brasil API', HttpStatus.NOT_FOUND);
-      }
-
-      return this.mapResponseToSellerData(response.data);
-    } catch (error) {
-      if (error instanceof AxiosError) {
-        this.logger.error(`Erro ao buscar dados do CNPJ ${cnpj}: ${error.message}`);
-        throw new HttpException(
-          'Erro ao buscar dados na Brasil API',
-          HttpStatus.INTERNAL_SERVER_ERROR,
-        );
-      }
-      throw error;
+    private formatCnpj(cnpj: string): string {
+        return cnpj.replace(/[^\d]/g, '');
     }
-  }
+
+    private mapResponseToSellerData(response: IBrasilApiResponse): ISellerData {
+        return {
+            razaoSocial: response.razao_social,
+            endereco: {
+                logradouro: response.logradouro,
+                numero: response.numero,
+                complemento: response.complemento,
+                bairro: response.bairro,
+                municipio: response.municipio,
+                uf: response.uf,
+                cep: response.cep,
+            },
+        };
+    }
+
+    async getSellerData(cnpj: string): Promise<ISellerData> {
+        try {
+            this.logger.debug(`Iniciando busca de dados para CNPJ: ${cnpj}`);
+            const formattedCnpj = this.formatCnpj(cnpj);
+            this.logger.debug(`CNPJ limpo: ${formattedCnpj}`);
+
+            const url = `${this.baseUrl}/cnpj/v1/${formattedCnpj}`;
+            this.logger.debug(`URL da requisição: ${url}`);
+
+            const response = await firstValueFrom(
+                this.httpService.get(url).pipe(
+                    map((response) => {
+                        this.logger.debug('Resposta recebida da API:', response.data);
+                        return response.data;
+                    }),
+                ),
+            );
+
+            this.logger.debug('Dados do CNPJ processados com sucesso');
+            if (!response) {
+                throw new HttpException('CNPJ não encontrado na Brasil API', HttpStatus.NOT_FOUND);
+            }
+
+            return this.mapResponseToSellerData(response);
+        } catch (error) {
+            this.logger.error('Erro detalhado na chamada à Brasil API:', {
+                error: error instanceof Error ? error.message : 'Erro desconhecido',
+                stack: error instanceof Error ? error.stack : undefined,
+                response: error.response?.data,
+                status: error.response?.status,
+            });
+            throw new HttpException(
+                `Erro ao buscar dados do CNPJ ${cnpj}: ${error instanceof Error ? error.message : 'Erro desconhecido'}`,
+                HttpStatus.INTERNAL_SERVER_ERROR,
+            );
+        }
+    }
 }

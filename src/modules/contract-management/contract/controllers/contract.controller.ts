@@ -352,7 +352,12 @@ export class ContractController {
   @ApiResponse({
     status: 200,
     description: 'Contrato atualizado com sucesso',
-    type: ContractResponseDto,
+    schema: {
+      properties: {
+        contractsDeleted: { type: 'number' },
+        hasMultipleContracts: { type: 'boolean' },
+      },
+    },
   })
   @ApiResponse({
     status: 404,
@@ -364,7 +369,7 @@ export class ContractController {
   })
   async updateContractByCnpj(
     @Body() updateContractByCnpjDto: UpdateContractByCnpjDto,
-  ): Promise<ContractResponseDto> {
+  ): Promise<{ contractsDeleted: number; hasMultipleContracts: boolean }> {
     return this.contractService.updateContractByCnpj(updateContractByCnpjDto.cnpj);
   }
 }

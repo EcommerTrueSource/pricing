@@ -11,16 +11,16 @@ import { AutentiqueModule } from '../integration/autentique/autentique.module';
 import { UpdateAllContractsCommand } from './commands/update-all-contracts.command';
 
 @Module({
-  imports: [
-    PrismaModule,
-    SecurityModule,
-    SellerModule,
-    ContractModule,
-    TemplateModule,
-    NotificationModule,
-    IntegrationModule,
-    AutentiqueModule,
-  ],
-  providers: [UpdateSellersCommand, UpdateAllContractsCommand],
+    imports: [
+        PrismaModule,
+        SecurityModule,
+        SellerModule,
+        ContractModule,
+        TemplateModule,
+        NotificationModule,
+        IntegrationModule,
+        AutentiqueModule,
+    ],
+    providers: [UpdateSellersCommand, UpdateAllContractsCommand],
 })
 export class ContractManagementModule {}

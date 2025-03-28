@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Param, HttpCode, HttpStatus } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, HttpCode, HttpStatus, Delete } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiParam } from '@nestjs/swagger';
 import { AutentiqueService } from '../services/autentique.service';
 import { CreateDocumentDto } from '../dtos/create-document.dto';
@@ -122,7 +122,7 @@ export class AutentiqueController {
   @Get('test/seller/:cnpj')
   @ApiOperation({ summary: 'Testa a integração com a Autentique buscando um documento por CNPJ' })
   @ApiResponse({ status: 200, description: 'Documento encontrado com sucesso' })
-  async testSellerIntegration(@Param('cnpj') cnpj: string): Promise<IAutentiqueDocument | null> {
+  async testSellerIntegration(@Param('cnpj') cnpj: string): Promise<IAutentiqueDocument[]> {
     return this.autentiqueService.findDocumentBySellerCnpj(cnpj);
   }
 
@@ -131,5 +131,60 @@ export class AutentiqueController {
   @ApiResponse({ status: 200, description: 'Sincronização concluída com sucesso' })
   async syncContracts() {
     return this.autentiqueService.syncContracts();
+  }
+
+  @Delete('documents/:documentId')
+  @ApiOperation({
+    summary: 'Deleta um documento do Autentique',
+    description:
+      'Remove permanentemente um documento da plataforma Autentique. Esta operação não pode ser desfeita.',
+  })
+  @ApiParam({ name: 'documentId', description: 'ID do documento no Autentique' })
+  @ApiResponse({
+    status: 200,
+    description: 'Documento deletado com sucesso',
+    schema: {
+      type: 'object',
+      properties: {
+        success: { type: 'boolean', description: 'Indica se a operação foi bem sucedida' },
+        message: { type: 'string', description: 'Mensagem descritiva do resultado da operação' },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Documento não encontrado',
+    schema: {
+      type: 'object',
+      properties: {
+        success: { type: 'boolean', example: false },
+        message: { type: 'string', example: 'Documento não encontrado na Autentique' },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 500,
+    description: 'Erro interno do servidor',
+    schema: {
+      type: 'object',
+      properties: {
+        success: { type: 'boolean', example: false },
+        message: { type: 'string', example: 'Erro ao deletar documento na Autentique' },
+      },
+    },
+  })
+  async deleteDocument(@Param('documentId') documentId: string) {
+    try {
+      await this.autentiqueService.deleteDocument(documentId);
+      return {
+        success: true,
+        message: 'Documento deletado com sucesso',
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: error.message || 'Erro ao deletar documento',
+      };
+    }
   }
 }
