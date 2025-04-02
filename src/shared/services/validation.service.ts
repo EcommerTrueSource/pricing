@@ -1,6 +1,17 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
+interface ContractNotificationParams {
+    razaoSocial: string;
+    contractUrl: string;
+}
+
+interface ValidationResult {
+    isValid: boolean;
+    params?: ContractNotificationParams;
+    error?: string;
+}
+
 @Injectable()
 export class ValidationService {
     private readonly logger = new Logger(ValidationService.name);
@@ -72,24 +83,33 @@ export class ValidationService {
      * @param params Parâmetros da notificação
      * @returns Parâmetros validados e sanitizados
      */
-    validateContractNotificationParams(params: { razaoSocial: string; contractUrl: string }): {
-        isValid: boolean;
-        params?: { razaoSocial: string; contractUrl: string };
-    } {
-        // Valida URL do contrato
-        if (!this.validateUrl(params.contractUrl)) {
-            return { isValid: false };
+    validateContractNotificationParams(params: ContractNotificationParams): ValidationResult {
+        if (!params.razaoSocial || params.razaoSocial.trim().length === 0) {
+            return {
+                isValid: false,
+                error: 'Razão social é obrigatória',
+            };
         }
 
-        // Sanitiza razão social
-        const sanitizedRazaoSocial = this.sanitizeContent(params.razaoSocial);
+        if (!params.contractUrl || params.contractUrl.trim().length === 0) {
+            return {
+                isValid: false,
+                error: 'URL do contrato é obrigatória',
+            };
+        }
+
+        try {
+            new URL(params.contractUrl);
+        } catch (error) {
+            return {
+                isValid: false,
+                error: 'URL do contrato inválida',
+            };
+        }
 
         return {
             isValid: true,
-            params: {
-                razaoSocial: sanitizedRazaoSocial,
-                contractUrl: params.contractUrl,
-            },
+            params,
         };
     }
 }

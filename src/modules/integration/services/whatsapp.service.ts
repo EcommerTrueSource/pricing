@@ -14,6 +14,7 @@ interface ContractNotificationParams {
     razaoSocial: string;
     contractUrl: string;
     sellerId: string;
+    notificationAttempts: number;
 }
 
 @Injectable()
@@ -61,19 +62,25 @@ export class WhatsAppService {
         });
 
         if (!validationResult.isValid) {
-            this.logger.error('Parâmetros da notificação inválidos');
-            return { success: false, error: 'Parâmetros da notificação inválidos' };
+            this.logger.error('Parâmetros da notificação inválidos:', validationResult.error);
+            return { success: false, error: validationResult.error };
         }
 
-        const message = this.getCachedMessage(phoneNumber, {
-            ...validationResult.params,
-            sellerId: params.sellerId,
-        });
-        return this.retryWithBackoff(
-            () => this.sendMessage(phoneNumber, message),
-            this.MAX_RETRIES,
-            this.INITIAL_DELAY,
-        );
+        try {
+            const message = this.getCachedMessage(phoneNumber, {
+                ...validationResult.params,
+                sellerId: params.sellerId,
+                notificationAttempts: params.notificationAttempts,
+            });
+            return await this.retryWithBackoff(
+                () => this.sendMessage(phoneNumber, message),
+                this.MAX_RETRIES,
+                this.INITIAL_DELAY,
+            );
+        } catch (error) {
+            this.logger.error('Erro ao enviar notificação:', error);
+            return { success: false, error: error.message };
+        }
     }
 
     async sendMessage(
@@ -229,10 +236,25 @@ Equipe True Source`;
 
     private readonly messageCache = new Map<string, string>();
 
-    private getCachedMessage(key: string, params: ContractNotificationParams): string {
-        if (!this.messageCache.has(key)) {
-            this.messageCache.set(key, this.formatContractMessage(params));
+    private getCachedMessage(phoneNumber: string, params: ContractNotificationParams): string {
+        const cacheKey = `${phoneNumber}:${params.sellerId}`;
+        const cachedMessage = this.messageCache.get(cacheKey);
+
+        if (cachedMessage) {
+            return cachedMessage;
         }
-        return this.messageCache.get(key);
+
+        const message = `Olá ${params.razaoSocial}!
+
+Você tem um contrato pendente de assinatura.
+${params.contractUrl}
+
+${params.notificationAttempts > 1 ? `Esta é a ${params.notificationAttempts}ª tentativa de contato.` : ''}
+
+Por favor, assine o contrato o mais breve possível.
+Em caso de dúvidas, entre em contato com nosso suporte.`;
+
+        this.messageCache.set(cacheKey, message);
+        return message;
     }
 }

@@ -4,6 +4,7 @@ import { ContractService } from '../../contract/services/contract.service';
 import { NotificationService } from '../../notification/services/notification.service';
 import { ENotificationType } from '../../notification/enums/notification-type.enum';
 import { ENotificationChannel } from '../../notification/enums/notification-channel.enum';
+import { PrismaService } from '../../../../shared/services/prisma.service';
 import {
     ContractCreatedEvent,
     ContractSignedEvent,
@@ -19,30 +20,40 @@ export class ContractEventHandler {
     constructor(
         private readonly contractService: ContractService,
         private readonly notificationService: NotificationService,
+        private readonly prisma: PrismaService,
         private eventEmitter: EventEmitter2,
     ) {}
 
+    private async getSellerData(sellerId: string) {
+        return this.prisma.sellers.findUnique({
+            where: { id: sellerId },
+        });
+    }
+
     @OnEvent('contract.created')
     async handleContractCreatedEvent(event: ContractCreatedEvent) {
-        // Criar notificação de assinatura pendente
+        const seller = await this.getSellerData(event.sellerId);
+        const contract = await this.contractService.findOne(event.contractId);
+
         await this.notificationService.create({
             contractId: event.contractId,
             sellerId: event.sellerId,
-            type: ENotificationType.SIGNATURE_PENDING,
+            type: ENotificationType.SIGNATURE_REMINDER,
             channel: ENotificationChannel.WHATSAPP,
-            content: 'Você tem um novo contrato para assinar',
+            content: `Olá ${seller.razao_social}, seu contrato está aguardando assinatura. Por favor, acesse o link para assinar: ${contract.signingUrl}`,
             attemptNumber: 1,
         });
     }
 
     @OnEvent('contract.signed')
     async handleContractSignedEvent(event: ContractSignedEvent) {
+        const seller = await this.getSellerData(event.sellerId);
         const notification: CreateNotificationDto = {
             contractId: event.contractId,
             sellerId: event.sellerId,
-            type: ENotificationType.SIGNED,
+            type: ENotificationType.CONTRACT_SIGNED,
             channel: ENotificationChannel.WHATSAPP,
-            content: 'Seu contrato foi assinado com sucesso',
+            content: `Olá ${seller.razao_social}, seu contrato foi assinado com sucesso!`,
             attemptNumber: 1,
         };
 
@@ -51,25 +62,26 @@ export class ContractEventHandler {
 
     @OnEvent('contract.expired')
     async handleContractExpiredEvent(event: ContractExpiredEvent) {
-        // Criar notificação de contrato expirado
+        const seller = await this.getSellerData(event.sellerId);
         await this.notificationService.create({
             contractId: event.contractId,
             sellerId: event.sellerId,
-            type: ENotificationType.EXPIRED,
+            type: ENotificationType.CONTRACT_EXPIRED,
             channel: ENotificationChannel.WHATSAPP,
-            content: 'Seu contrato expirou',
+            content: `Olá ${seller.razao_social}, seu contrato expirou. Por favor, entre em contato conosco.`,
             attemptNumber: 1,
         });
     }
 
     @OnEvent('contract.cancelled')
     async handleContractCancelledEvent(event: ContractCancelledEvent) {
+        const seller = await this.getSellerData(event.sellerId);
         const notification: CreateNotificationDto = {
             contractId: event.contractId,
             sellerId: event.sellerId,
-            type: ENotificationType.CANCELLED,
+            type: ENotificationType.CONTRACT_EXPIRED,
             channel: ENotificationChannel.WHATSAPP,
-            content: `Seu contrato foi cancelado. Motivo: ${event.reason}`,
+            content: `Olá ${seller.razao_social}, seu contrato foi cancelado. Por favor, entre em contato conosco.`,
             attemptNumber: 1,
         };
 
@@ -78,13 +90,15 @@ export class ContractEventHandler {
 
     @OnEvent('contract.reminder')
     async handleContractReminderEvent(event: ContractReminderEvent) {
-        // Criar notificação de lembrete
+        const seller = await this.getSellerData(event.sellerId);
+        const contract = await this.contractService.findOne(event.contractId);
+
         await this.notificationService.create({
             contractId: event.contractId,
             sellerId: event.sellerId,
-            type: ENotificationType.SIGNATURE_PENDING,
+            type: ENotificationType.SIGNATURE_REMINDER,
             channel: ENotificationChannel.WHATSAPP,
-            content: `Lembrete: ${event.reminderType}`,
+            content: `Olá ${seller.razao_social}, seu contrato está aguardando assinatura. Por favor, acesse o link para assinar: ${contract.signingUrl}`,
             attemptNumber: 1,
         });
     }

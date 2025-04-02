@@ -1,644 +1,502 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { IAutentiqueService } from '../interfaces/autentique-service.interface';
-import { IAutentiqueDocument } from '../interfaces/autentique-document.interface';
-import { AutentiqueDocumentStatus } from '../interfaces/autentique-document.interface';
+import { PrismaClient } from '@prisma/client';
 import { RateLimiterMemory } from 'rate-limiter-flexible';
 import axios, { AxiosInstance } from 'axios';
-import { PrismaClient } from '@prisma/client';
-import { contract_status } from '@prisma/client';
-import { status_change_reason } from '@prisma/client';
-
-interface IAutentiqueResponse {
-  data?: any;
-  errors?: Array<{
-    message: string;
-    locations?: Array<{
-      line: number;
-      column: number;
-    }>;
-    path?: string[];
-    code?: string;
-  }>;
-}
+import * as FormData from 'form-data';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
+import {
+    IAutentiqueDocument,
+    IAutentiqueService,
+    AutentiqueDocumentStatus,
+} from '../interfaces/autentique.interface';
+import { EContractStatus } from '../../../contract-management/contract/enums/contract-status.enum';
 
 @Injectable()
 export class AutentiqueService implements IAutentiqueService {
-  private readonly logger = new Logger(AutentiqueService.name);
-  private readonly rateLimiter: RateLimiterMemory;
-  private readonly httpClient: AxiosInstance;
-  private readonly documentNamePattern = 'Contrato PMA True Brands - {cnpj}';
-  private readonly prisma: PrismaClient;
+    private readonly logger = new Logger(AutentiqueService.name);
+    private readonly baseUrl: string;
+    private readonly apiKey: string;
+    private readonly rateLimiter: RateLimiterMemory;
+    private readonly httpClient: AxiosInstance;
+    private readonly documentNamePattern = 'Contrato PMA True Brands - {cnpj}';
+    private readonly prisma: PrismaClient;
 
-  constructor(private readonly configService: ConfigService) {
-    this.prisma = new PrismaClient();
-    this.logger.debug('Inicializando AutentiqueService...');
+    constructor(private readonly configService: ConfigService) {
+        this.prisma = new PrismaClient();
+        this.logger.debug('Inicializando AutentiqueService...');
 
-    // Debug do ConfigService
-    this.logger.debug('ConfigService disponível:', !!this.configService);
-
-    // Listando todas as variáveis de ambiente disponíveis
-    const envKeys = Object.keys(process.env);
-    this.logger.debug('Variáveis de ambiente disponíveis:', envKeys);
-
-    this.rateLimiter = new RateLimiterMemory({
-      points: 10,
-      duration: 1,
-    });
-
-    // Obtendo o token da API
-    const apiKey = this.configService.getOrThrow<string>('AUTENTIQUE_API_KEY');
-
-    if (!apiKey || apiKey === 'your_api_key_here') {
-      this.logger.error('Token não encontrado ou inválido:', {
-        hasToken: !!apiKey,
-        tokenValue: apiKey,
-        envKeys: Object.keys(process.env),
-      });
-      throw new Error('AUTENTIQUE_API_KEY não configurada corretamente no .env.local');
-    }
-
-    this.logger.debug(`Inicializando AutentiqueService com API Key: ${apiKey.substring(0, 8)}...`);
-
-    // Configurando o cliente HTTP
-    this.httpClient = axios.create({
-      baseURL: 'https://api.autentique.com.br/v2/graphql',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      timeout: 10000, // 10 segundos
-    });
-
-    // Adicionando interceptor para log de requisições
-    this.httpClient.interceptors.request.use(
-      (config) => {
-        this.logger.debug(`Requisição para: ${config.method?.toUpperCase()} ${config.url}`);
-        this.logger.debug(`Headers: ${JSON.stringify(config.headers)}`);
-        this.logger.debug(`Data: ${JSON.stringify(config.data)}`);
-        return config;
-      },
-      (error) => {
-        this.logger.error('Erro na requisição:', error);
-        return Promise.reject(error);
-      },
-    );
-
-    // Adicionando interceptor para log de respostas
-    this.httpClient.interceptors.response.use(
-      (response) => {
-        this.logger.debug(`Resposta recebida: ${response.status} ${response.statusText}`);
-        this.logger.debug(`Data: ${JSON.stringify(response.data)}`);
-        return response;
-      },
-      (error) => {
-        this.logger.error('Erro na resposta:', {
-          status: error.response?.status,
-          data: error.response?.data,
-          headers: error.response?.headers,
-          config: {
-            url: error.config?.url,
-            method: error.config?.method,
-            headers: error.config?.headers,
-          },
+        // Configurando o rate limiter
+        this.rateLimiter = new RateLimiterMemory({
+            points: 10,
+            duration: 1,
         });
-        return Promise.reject(error);
-      },
-    );
-  }
 
-  private formatCnpj(cnpj: string): string {
-    // Remove todos os caracteres não numéricos
-    const cleanCnpj = cnpj.replace(/\D/g, '');
+        this.baseUrl = this.configService.get<string>('AUTENTIQUE_API_URL');
+        this.apiKey = this.configService.get<string>('AUTENTIQUE_API_KEY');
 
-    // Formata o CNPJ com pontos e traço (XX.XXX.XXX/XXXX-XX)
-    return cleanCnpj.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5');
-  }
+        if (!this.baseUrl || !this.apiKey) {
+            throw new Error('Configurações da Autentique não encontradas');
+        }
 
-  private async makeGraphQLRequest(
-    query: string,
-    variables: Record<string, any> = {},
-  ): Promise<any> {
-    try {
-      await this.rateLimiter.consume('autentique-api');
+        this.logger.debug(
+            `Inicializando AutentiqueService com API Key: ${this.apiKey.substring(0, 8)}...`,
+        );
 
-      this.logger.debug('Iniciando requisição GraphQL...');
-      this.logger.debug(`Query: ${query}`);
-      this.logger.debug(`Variables: ${JSON.stringify(variables)}`);
-
-      const response = await this.httpClient.post<IAutentiqueResponse>('', {
-        query,
-        variables,
-      });
-
-      this.logger.debug(`Resposta da API: ${JSON.stringify(response.data)}`);
-
-      if (response.data.errors) {
-        this.logger.error('Erro na resposta GraphQL:', response.data.errors);
-        throw new Error(response.data.errors[0].message);
-      }
-
-      return response.data;
-    } catch (error) {
-      this.logger.error('Erro na requisição GraphQL:', error);
-      if (error.response) {
-        this.logger.error('Detalhes do erro:', {
-          status: error.response.status,
-          data: error.response.data,
-          headers: error.response.headers,
+        // Configurando o cliente HTTP
+        this.httpClient = axios.create({
+            baseURL: this.baseUrl,
+            headers: {
+                Authorization: `Bearer ${this.apiKey}`,
+                'Content-Type': 'application/json',
+            },
         });
-      }
-      throw error;
-    }
-  }
-
-  async findDocumentBySellerCnpj(cnpj: string): Promise<IAutentiqueDocument[]> {
-    // Formata o CNPJ antes de usar na busca
-    const formattedCnpj = this.formatCnpj(cnpj);
-    const searchTerm = `Contrato PMA True Brands - ${formattedCnpj}`;
-    this.logger.debug(`[${cnpj}] 🔍 Buscando documentos com termo: "${searchTerm}"`);
-
-    const query = `
-      fragment event on Event {
-        ip
-        port
-        reason
-        created_at
-        geolocation {
-          country
-          countryISO
-          state
-          stateISO
-          city
-          zipcode
-          latitude
-          longitude
-        }
-      }
-
-      query {
-        documents(limit: 10, page: 1, name: "${searchTerm}") {
-          data {
-            id
-            name
-            refusable
-            sortable
-            created_at
-            files { original signed pades }
-            signatures {
-              public_id
-              name
-              email
-              created_at
-              action { name }
-              link { short_link }
-              user { id name email phone }
-              user_data { name email phone }
-              email_events {
-                sent
-                opened
-                delivered
-                refused
-                reason
-              }
-              viewed { ...event }
-              signed { ...event }
-              rejected { ...event }
-            }
-          }
-        }
-      }
-    `;
-
-    try {
-      const response = await this.makeGraphQLRequest(query);
-
-      // Verifica se a resposta tem a estrutura esperada
-      if (!response?.data?.documents?.data) {
-        this.logger.debug(`[${cnpj}] ℹ️ Nenhum documento encontrado`);
-        return [];
-      }
-
-      const documents = response.data.documents.data;
-
-      if (documents.length === 0) {
-        this.logger.debug(`[${cnpj}] ℹ️ Nenhum documento encontrado`);
-        return [];
-      }
-
-      this.logger.debug(`[${cnpj}] 📄 Encontrados ${documents.length} documentos`);
-      return documents;
-    } catch (error) {
-      this.logger.error(`[${cnpj}] ❌ Erro ao buscar documentos:`, error);
-      throw error;
-    }
-  }
-
-  async getDocument(documentId: string): Promise<IAutentiqueDocument> {
-    await this.rateLimiter.consume('autentique-api');
-
-    try {
-      const query = `
-        fragment event on Event {
-          ip
-          port
-          reason
-          created_at
-          geolocation {
-            country
-            countryISO
-            state
-            stateISO
-            city
-            zipcode
-            latitude
-            longitude
-          }
-        }
-
-        query {
-          documents(limit: 1, page: 1, id: "${documentId}") {
-            data {
-              id
-              name
-              refusable
-              sortable
-              created_at
-              files { original signed pades }
-              signatures {
-                public_id
-                name
-                email
-                created_at
-                action { name }
-                link { short_link }
-                user { id name email phone }
-                user_data { name email phone }
-                email_events {
-                  sent
-                  opened
-                  delivered
-                  refused
-                  reason
-                }
-                viewed { ...event }
-                signed { ...event }
-                rejected { ...event }
-              }
-            }
-          }
-        }
-      `;
-
-      const response = await this.makeGraphQLRequest(query);
-      const document = response.data?.documents?.data?.[0];
-
-      if (!document) {
-        throw new Error('Documento não encontrado');
-      }
-
-      return {
-        id: document.id,
-        name: document.name,
-        refusable: document.refusable,
-        sortable: document.sortable,
-        created_at: new Date(document.created_at),
-        files: document.files,
-        signatures: document.signatures.map((signature) => ({
-          public_id: signature.public_id,
-          name: signature.name,
-          email: signature.email,
-          created_at: new Date(signature.created_at),
-          action: signature.action,
-          link: signature.link,
-          user: signature.user,
-          user_data: signature.user_data,
-          email_events: signature.email_events
-            ? {
-                sent: signature.email_events.sent
-                  ? new Date(signature.email_events.sent)
-                  : undefined,
-                opened: signature.email_events.opened
-                  ? new Date(signature.email_events.opened)
-                  : undefined,
-                delivered: signature.email_events.delivered
-                  ? new Date(signature.email_events.delivered)
-                  : undefined,
-                refused: signature.email_events.refused
-                  ? new Date(signature.email_events.refused)
-                  : undefined,
-                reason: signature.email_events.reason,
-              }
-            : undefined,
-          viewed: signature.viewed
-            ? {
-                ip: signature.viewed.ip,
-                port: signature.viewed.port,
-                reason: signature.viewed.reason,
-                created_at: new Date(signature.viewed.created_at),
-                geolocation: signature.viewed.geolocation,
-              }
-            : undefined,
-          signed: signature.signed
-            ? {
-                ip: signature.signed.ip,
-                port: signature.signed.port,
-                reason: signature.signed.reason,
-                created_at: new Date(signature.signed.created_at),
-                geolocation: signature.signed.geolocation,
-              }
-            : undefined,
-          rejected: signature.rejected
-            ? {
-                ip: signature.rejected.ip,
-                port: signature.rejected.port,
-                reason: signature.rejected.reason,
-                created_at: new Date(signature.rejected.created_at),
-                geolocation: signature.rejected.geolocation,
-              }
-            : undefined,
-        })),
-        signed_count: document.signatures.filter((sig) => sig.signed).length,
-        status: this.mapStatus(document),
-        signedAt: document.signatures.find((sig) => sig.signed)?.signed?.created_at
-          ? new Date(document.signatures.find((sig) => sig.signed)?.signed?.created_at)
-          : null,
-        expiresAt: document.expires_at ? new Date(document.expires_at) : null,
-        updatedAt: new Date(),
-      };
-    } catch (error) {
-      this.logger.error(`Erro ao buscar documento ${documentId}: ${error.message}`);
-      if (error.response?.status === 401) {
-        this.logger.error(
-          'Erro de autenticação com a API do Autentique. Verifique se a chave de API está correta.',
-        );
-      }
-      throw error;
-    }
-  }
-
-  async createDocument(
-    name: string,
-    content: string,
-    signers: Array<{ name: string; email: string }>,
-  ): Promise<IAutentiqueDocument> {
-    await this.rateLimiter.consume('autentique-api');
-
-    try {
-      const mutation = `mutation CreateDocument($document: DocumentInput!, $signers: [SignerInput!]!, $file: Upload!) {
-        createDocument(document: $document, signers: $signers, file: $file) {
-          id
-          name
-          status
-          created_at
-          updated_at
-          signed_at
-          expires_at
-          signatures {
-            id
-            name
-            email
-            status
-            signed_at
-            link {
-              short_link
-            }
-          }
-        }
-      }`;
-
-      const variables = {
-        document: {
-          name,
-        },
-        signers: signers.map((signer) => ({
-          email: signer.email,
-          name: signer.name,
-          action: 'SIGN',
-        })),
-        file: content,
-      };
-
-      const response = await this.makeGraphQLRequest(mutation, variables);
-      return this.mapDocumentResponse(response.data?.createDocument);
-    } catch (error) {
-      this.logger.error(`Erro ao criar documento: ${error.message}`);
-      if (error.response?.status === 401) {
-        this.logger.error(
-          'Erro de autenticação com a API do Autentique. Verifique se a chave de API está correta.',
-        );
-      }
-      throw error;
-    }
-  }
-
-  mapStatus(document: any): AutentiqueDocumentStatus {
-    if (!document || !document.signatures) {
-      return AutentiqueDocumentStatus.PENDING;
     }
 
-    // Filtra apenas as assinaturas do seller (exclui Patrick Spencer)
-    const sellerSignatures = document.signatures.filter(
-      (sig) => sig && sig.email && !sig.email.includes('truebrands.com.br'),
-    );
-
-    // Se tem assinatura rejeitada do seller, documento está cancelado
-    if (sellerSignatures.some((sig) => sig.rejected)) {
-      return AutentiqueDocumentStatus.CANCELLED;
-    }
-
-    // Se tem assinatura do seller, documento está assinado
-    if (sellerSignatures.some((sig) => sig.signed)) {
-      return AutentiqueDocumentStatus.SIGNED;
-    }
-
-    // Se tem data de expiração e já passou, documento está expirado
-    if (document.expiration_at && new Date(document.expiration_at) < new Date()) {
-      return AutentiqueDocumentStatus.EXPIRED;
-    }
-
-    // Caso contrário, está pendente
-    return AutentiqueDocumentStatus.PENDING;
-  }
-
-  private mapDocumentResponse(data: any): IAutentiqueDocument {
-    const signatures = data.signatures.map((signature) => ({
-      name: signature.name,
-      email: signature.email,
-      status: signature.status as AutentiqueDocumentStatus,
-      signedAt: signature.signed_at ? new Date(signature.signed_at) : null,
-      signingUrl: signature.link?.short_link || null,
-    }));
-
-    return {
-      id: data.id,
-      name: data.name,
-      status: data.status as AutentiqueDocumentStatus,
-      signed_count: signatures.filter((sig) => sig.signedAt)?.length || 0,
-      created_at: new Date(data.created_at),
-      updatedAt: new Date(data.updated_at),
-      signedAt: data.signed_at ? new Date(data.signed_at) : null,
-      expiresAt: data.expires_at ? new Date(data.expires_at) : null,
-      signatures,
-      refusable: data.refusable || false,
-      sortable: data.sortable || false,
-      files: data.files || { original: null, signed: null, pades: null },
-    };
-  }
-
-  private mapDocumentFromGraphQL(document: any): IAutentiqueDocument {
-    const signatures =
-      document.signatures?.map((signature) => ({
-        name: signature.name,
-        email: signature.email,
-        status: this.mapStatus(document),
-        signedAt: signature.signed_at ? new Date(signature.signed_at) : null,
-        signingUrl: signature.signingUrl || null,
-      })) || [];
-
-    return {
-      id: document.id,
-      name: document.name,
-      status: this.mapStatus(document),
-      signed_count: signatures.filter((sig) => sig.signedAt)?.length || 0,
-      signedAt: null,
-      expiresAt: document.expires_at ? new Date(document.expires_at) : null,
-      created_at: new Date(),
-      updatedAt: new Date(),
-      signatures,
-      refusable: document.refusable || false,
-      sortable: document.sortable || false,
-      files: document.files || { original: null, signed: null, pades: null },
-    };
-  }
-
-  async syncContracts() {
-    try {
-      this.logger.log('Iniciando sincronização dos contratos com a Autentique...');
-
-      const sellers = await this.prisma.sellers.findMany({
-        include: {
-          contracts: true,
-        },
-      });
-
-      this.logger.log(`Encontrados ${sellers.length} sellers para sincronizar`);
-
-      let processedCount = 0;
-      let updatedCount = 0;
-      let errorCount = 0;
-
-      for (const seller of sellers) {
+    private mapDocumentResponse(response: any): IAutentiqueDocument {
         try {
-          this.logger.debug(`Processando seller ${seller.cnpj}...`);
+            const signatures = response.signatures.map((sig: any) => ({
+                public_id: sig.public_id,
+                name: sig.name,
+                email: sig.email,
+                created_at: new Date(sig.created_at),
+                action: sig.action,
+                link: sig.link,
+                user: sig.user,
+                signed: sig.signed,
+                rejected: sig.rejected,
+            }));
 
-          const documents = await this.findDocumentBySellerCnpj(seller.cnpj);
+            return {
+                id: response.id,
+                name: response.name,
+                status: response.status || AutentiqueDocumentStatus.PENDING,
+                signatures,
+                signed_count: signatures.filter((sig) => sig.signed).length,
+                created_at: new Date(response.created_at),
+                updatedAt: new Date(response.updated_at),
+                signedAt: signatures.find((sig) => sig.signed)?.signed_at
+                    ? new Date(signatures.find((sig) => sig.signed).signed_at)
+                    : undefined,
+                expiresAt: response.expiration_at ? new Date(response.expiration_at) : undefined,
+                refusable: response.refusable || false,
+                sortable: response.sortable || false,
+                files: {
+                    original: response.files?.original || '',
+                    signed: response.files?.signed || '',
+                    pades: response.files?.pades || '',
+                },
+            };
+        } catch (error) {
+            console.error('❌ Erro ao mapear documento:', error);
+            throw error;
+        }
+    }
 
-          if (documents.length === 0) {
-            this.logger.debug(`Nenhum documento encontrado para o seller ${seller.cnpj}`);
-            continue;
-          }
+    async createDocument(
+        documentName: string,
+        content: string,
+        signers: Array<{ name: string; email: string }>,
+        options?: { short_link?: boolean },
+    ): Promise<IAutentiqueDocument> {
+        try {
+            this.logger.log(`Iniciando criação de documento: ${documentName}`);
+            this.logger.log(`Número de signatários: ${signers.length}`);
 
-          const contract = seller.contracts[0];
-          if (contract) {
-            const newStatus = this.mapAutentiqueStatus(documents[0].status);
-            const statusChanged = contract.status !== newStatus;
+            // Cria um arquivo temporário com o conteúdo
+            const sanitizedName = documentName.replace(/[^a-zA-Z0-9]/g, '_');
+            const tempFilePath = path.join(os.tmpdir(), `${sanitizedName}.docx`);
 
-            await this.prisma.contracts.update({
-              where: { id: contract.id },
-              data: {
-                external_id: documents[0].id,
-                status: newStatus,
-                signed_at: documents[0].signedAt,
-                updated_at: documents[0].updatedAt,
-                signing_url: documents[0].signatures[0]?.link?.short_link || null,
-              },
+            // Substitui as variáveis do template
+            let processedContent = content;
+            const seller = signers[0];
+            processedContent = processedContent
+                .replace(/{{RAZAO_SOCIAL}}/g, seller.name)
+                .replace(/{{EMAIL}}/g, seller.email);
+
+            // Garante que o conteúdo está em base64
+            if (!/^[A-Za-z0-9+/=]+$/.test(processedContent)) {
+                processedContent = Buffer.from(processedContent).toString('base64');
+            }
+
+            const buffer = Buffer.from(processedContent, 'base64');
+            await fs.promises.writeFile(tempFilePath, buffer);
+
+            // Prepara o arquivo para upload
+            const file = await fs.createReadStream(tempFilePath);
+
+            // Prepara as operações GraphQL
+            const operation = {
+                query: `
+                    mutation CreateDocumentMutation($document: DocumentInput!, $signers: [SignerInput!]!, $file: Upload!) {
+                        createDocument(document: $document, signers: $signers, file: $file) {
+                            id
+                            name
+                            refusable
+                            sortable
+                            created_at
+                            signatures {
+                                public_id
+                                name
+                                email
+                                created_at
+                                action { name }
+                                link { short_link }
+                                user { id name email }
+                                signed { created_at }
+                                rejected { created_at }
+                            }
+                            files { original signed pades }
+                        }
+                    }
+                `,
+                variables: {
+                    document: {
+                        name: documentName,
+                        message: 'Por favor, assine o documento.',
+                        reminder: 'DAILY',
+                        configs: {
+                            notification_finished: true,
+                            notification_signed: true,
+                            signature_appearance: 'ELETRONIC',
+                        },
+                    },
+                    signers: signers.map((signer) => ({
+                        email: signer.email,
+                        name: signer.name,
+                        action: 'SIGN',
+                    })),
+                    file: null,
+                },
+            };
+
+            // Log para debug
+            this.logger.debug('Operation:', JSON.stringify(operation, null, 2));
+
+            // Cria o FormData
+            const formData = new FormData();
+            formData.append('operations', JSON.stringify(operation));
+            formData.append('map', JSON.stringify({ file: ['variables.file'] }));
+            formData.append('file', file, {
+                filename: `${sanitizedName}.docx`,
+                contentType:
+                    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
             });
 
-            if (statusChanged) {
-              await this.prisma.status_history.create({
-                data: {
-                  contract_id: contract.id,
-                  from_status: contract.status,
-                  to_status: newStatus,
-                  reason: this.getStatusChangeReason(newStatus),
-                  metadata: {
-                    document_id: documents[0].id,
-                    signed_at: documents[0].signedAt,
-                    updated_at: documents[0].updatedAt,
-                  },
+            this.logger.log('Enviando requisição para Autentique...');
+
+            // Faz a requisição
+            const response = await axios.post(
+                `${this.configService.get<string>('AUTENTIQUE_API_URL')}/graphql`,
+                formData,
+                {
+                    headers: {
+                        ...formData.getHeaders(),
+                        Authorization: `Bearer ${this.configService.get<string>('AUTENTIQUE_API_KEY')}`,
+                    },
                 },
-              });
+            );
+
+            this.logger.log('Resposta recebida da Autentique');
+            this.logger.debug('Response:', response.data);
+
+            if (response.data.errors) {
+                this.logger.error('Erros da Autentique:', response.data.errors);
+                throw new Error(response.data.errors[0].message);
             }
 
-            updatedCount++;
-          }
+            if (!response.data.data?.createDocument) {
+                this.logger.error('Resposta inválida da Autentique:', response.data);
+                throw new Error('Resposta inválida da Autentique');
+            }
 
-          processedCount++;
-          await new Promise((resolve) => setTimeout(resolve, 1000));
+            // Limpa o arquivo temporário
+            await fs.promises.unlink(tempFilePath);
+
+            // Gera links de assinatura para todos os signatários se a opção short_link estiver ativa
+            const document = response.data.data.createDocument;
+            if (options?.short_link) {
+                for (const signature of document.signatures) {
+                    if (signature.action?.name === 'SIGN') {
+                        const shortLink = await this.createSignatureLink(signature.public_id);
+                        // Atualiza o link na assinatura
+                        signature.link = { short_link: shortLink };
+                    }
+                }
+            }
+
+            return this.mapDocumentResponse(document);
         } catch (error) {
-          errorCount++;
-          this.logger.error(`Erro ao processar seller ${seller.cnpj}: ${error.message}`);
+            this.logger.error('Erro ao criar documento na Autentique:', error);
+            throw error;
         }
-      }
-
-      return {
-        success: true,
-        message: 'Sincronização concluída',
-        stats: {
-          total: sellers.length,
-          processed: processedCount,
-          updated: updatedCount,
-          errors: errorCount,
-        },
-      };
-    } catch (error) {
-      this.logger.error('Erro na sincronização:', error);
-      throw error;
     }
-  }
 
-  private mapAutentiqueStatus(status: AutentiqueDocumentStatus): contract_status {
-    switch (status) {
-      case AutentiqueDocumentStatus.SIGNED:
-        return contract_status.SIGNED;
-      case AutentiqueDocumentStatus.EXPIRED:
-        return contract_status.EXPIRED;
-      case AutentiqueDocumentStatus.CANCELLED:
-        return contract_status.CANCELLED;
-      default:
-        return contract_status.PENDING_SIGNATURE;
-    }
-  }
+    async createSignatureLink(publicId: string): Promise<string> {
+        try {
+            this.logger.log(`Criando link de assinatura para public_id: ${publicId}`);
 
-  private getStatusChangeReason(status: contract_status): status_change_reason {
-    switch (status) {
-      case contract_status.SIGNED:
-        return status_change_reason.SIGNED;
-      case contract_status.EXPIRED:
-        return status_change_reason.EXPIRED;
-      case contract_status.CANCELLED:
-        return status_change_reason.CANCELLED;
-      case contract_status.PENDING_SIGNATURE:
-        return status_change_reason.SENT_TO_SIGNATURE;
-      default:
-        return status_change_reason.CREATED;
-    }
-  }
+            const response = await this.httpClient.post('/graphql', {
+                query: `
+                    mutation {
+                        createLinkToSignature(
+                            public_id: "${publicId}"
+                        ) {
+                            short_link
+                        }
+                    }
+                `,
+            });
 
-  async deleteDocument(id: string): Promise<boolean> {
-    try {
-      const mutation = `
-        mutation {
-          deleteDocument(id: "${id}")
+            if (response.data.errors) {
+                this.logger.error('Erro ao criar link de assinatura:', response.data.errors);
+                throw new Error(response.data.errors[0].message);
+            }
+
+            if (!response.data.data?.createLinkToSignature?.short_link) {
+                this.logger.error('Resposta inválida ao criar link de assinatura:', response.data);
+                throw new Error('Resposta inválida ao criar link de assinatura');
+            }
+
+            const shortLink = response.data.data.createLinkToSignature.short_link;
+            this.logger.log(`Link de assinatura criado com sucesso: ${shortLink}`);
+            return shortLink;
+        } catch (error) {
+            this.logger.error('Erro ao criar link de assinatura:', error);
+            throw error;
         }
-      `;
-
-      const response = await this.makeGraphQLRequest(mutation);
-      return !!response?.data?.deleteDocument;
-    } catch (error) {
-      this.logger.error(`❌ Erro ao deletar documento ${id}:`, error);
-      return false;
     }
-  }
+
+    async findDocumentBySellerCnpj(cnpj: string): Promise<IAutentiqueDocument[]> {
+        try {
+            // Formata o CNPJ para o padrão XX.XXX.XXX/XXXX-XX
+            const formattedCnpj = cnpj.replace(
+                /(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/,
+                '$1.$2.$3/$4-$5',
+            );
+
+            // Constrói o nome do documento no padrão
+            const documentName = `Contrato PMA True Brands - ${formattedCnpj}`;
+
+            this.logger.debug(`Buscando documento com nome: ${documentName}`);
+
+            const response = await this.httpClient.post('/graphql', {
+                query: `
+                    query {
+                        documents(limit: 60, page: 1) {
+                            total
+                            data {
+                                id
+                                name
+                                created_at
+                                updated_at
+                                expiration_at
+                                refusable
+                                sortable
+                                signatures {
+                                    public_id
+                                    name
+                                    email
+                                    created_at
+                                    action { name }
+                                    link { short_link }
+                                    user { id name email }
+                                    signed { created_at }
+                                    rejected { created_at }
+                                }
+                                files { original signed }
+                            }
+                        }
+                    }
+                `,
+            });
+
+            if (response.data.errors) {
+                this.logger.error('Erro na resposta da Autentique:', response.data.errors);
+                throw new Error(response.data.errors[0].message);
+            }
+
+            if (!response.data.data?.documents?.data) {
+                this.logger.error('Resposta inválida da Autentique:', response.data);
+                throw new Error('Resposta inválida da Autentique');
+            }
+
+            // Filtra os documentos que correspondem exatamente ao nome
+            const documents = response.data.data.documents.data.filter(
+                (doc: any) => doc && doc.name === documentName,
+            );
+
+            if (!documents.length) {
+                this.logger.debug(`Nenhum documento encontrado com o nome: ${documentName}`);
+                return [];
+            }
+
+            this.logger.debug(
+                `Encontrados ${documents.length} documentos com o nome: ${documentName}`,
+            );
+
+            return documents
+                .map((doc: any) => {
+                    try {
+                        return this.mapDocumentResponse(doc);
+                    } catch (error) {
+                        this.logger.error(`Erro ao mapear documento ${doc.id}:`, error);
+                        return null;
+                    }
+                })
+                .filter((doc): doc is IAutentiqueDocument => doc !== null);
+        } catch (error) {
+            this.logger.error('Erro ao buscar documentos por CNPJ:', error);
+            throw error;
+        }
+    }
+
+    async deleteDocument(id: string): Promise<boolean> {
+        try {
+            const response = await this.httpClient.post('/graphql', {
+                query: `
+                    mutation DeleteDocument($id: ID!) {
+                        deleteDocument(id: $id)
+                    }
+                `,
+                variables: {
+                    id,
+                },
+            });
+
+            if (response.data.errors) {
+                throw new Error(response.data.errors[0].message);
+            }
+
+            return response.data.data.deleteDocument;
+        } catch (error) {
+            this.logger.error('Erro ao deletar documento:', error);
+            throw error;
+        }
+    }
+
+    mapStatus(document: IAutentiqueDocument): EContractStatus {
+        switch (document.status) {
+            case AutentiqueDocumentStatus.DRAFT:
+                return EContractStatus.DRAFT;
+            case AutentiqueDocumentStatus.PENDING:
+                return EContractStatus.PENDING_SIGNATURE;
+            case AutentiqueDocumentStatus.SIGNED:
+                return EContractStatus.SIGNED;
+            case AutentiqueDocumentStatus.EXPIRED:
+                return EContractStatus.EXPIRED;
+            case AutentiqueDocumentStatus.CANCELLED:
+                return EContractStatus.CANCELLED;
+            default:
+                return EContractStatus.DRAFT;
+        }
+    }
+
+    async getDocument(documentId: string): Promise<IAutentiqueDocument> {
+        try {
+            this.logger.debug(`Buscando documento por ID: ${documentId}`);
+
+            const response = await this.httpClient.post('/graphql', {
+                query: `
+                    query {
+                        document(id: "${documentId}") {
+                            id
+                            name
+                            refusable
+                            sortable
+                            created_at
+                            files { original signed pades }
+                            signatures {
+                                public_id
+                                name
+                                email
+                                created_at
+                                action { name }
+                                link { short_link }
+                                user { id name email phone }
+                                user_data { name email phone }
+                                email_events {
+                                    sent
+                                    opened
+                                    delivered
+                                    refused
+                                    reason
+                                }
+                                viewed { created_at }
+                                signed { created_at }
+                                rejected { created_at }
+                                signed_unapproved { created_at }
+                                biometric_approved { created_at }
+                                biometric_rejected { created_at }
+                            }
+                        }
+                    }
+                `,
+            });
+
+            if (response.data.errors) {
+                this.logger.error('Erro na resposta da Autentique:', response.data.errors);
+                throw new Error(response.data.errors[0].message);
+            }
+
+            if (!response.data.data?.document) {
+                this.logger.error('Documento não encontrado:', documentId);
+                throw new Error('Documento não encontrado na Autentique');
+            }
+
+            this.logger.debug(`Documento encontrado: ${response.data.data.document.name}`);
+
+            return this.mapDocumentResponse(response.data.data.document);
+        } catch (error) {
+            this.logger.error('Erro ao buscar documento:', error);
+            throw error;
+        }
+    }
+
+    async syncContracts(): Promise<void> {
+        try {
+            const contracts = await this.prisma.contracts.findMany({
+                where: {
+                    external_id: {
+                        not: null,
+                    },
+                },
+            });
+
+            for (const contract of contracts) {
+                try {
+                    const document = await this.getDocument(contract.external_id);
+                    await this.prisma.contracts.update({
+                        where: { id: contract.id },
+                        data: {
+                            status: this.mapAutentiqueStatus(document.status),
+                            signing_url: document.signatures[0]?.link.short_link,
+                            signed_at: document.signedAt,
+                            expires_at: document.expiresAt,
+                        },
+                    });
+                } catch (error) {
+                    this.logger.error(`Erro ao sincronizar contrato ${contract.id}:`, error);
+                }
+            }
+        } catch (error) {
+            this.logger.error('Erro ao sincronizar contratos:', error);
+            throw error;
+        }
+    }
+
+    private mapAutentiqueStatus(status: AutentiqueDocumentStatus): EContractStatus {
+        switch (status) {
+            case AutentiqueDocumentStatus.SIGNED:
+                return EContractStatus.SIGNED;
+            case AutentiqueDocumentStatus.EXPIRED:
+                return EContractStatus.EXPIRED;
+            case AutentiqueDocumentStatus.CANCELLED:
+                return EContractStatus.CANCELLED;
+            default:
+                return EContractStatus.PENDING_SIGNATURE;
+        }
+    }
 }

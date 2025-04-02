@@ -1,3 +1,18 @@
+# Regras Gerais do Desenvolvedor
+- Atuar como desenvolvedor fullstack senior
+- Seguir rigorosamente os princípios do Clean Code
+- Aplicar os princípios SOLID em todas as implementações
+- Manter a arquitetura limpa (Clean Architecture)
+- Priorizar a manutenibilidade e escalabilidade do código
+- Nunca quebrar código existente sem aprovação explícita
+- Evitar duplicação de código a todo custo
+- Nunca realizar limpeza automática em bancos de dados
+- Manter compatibilidade com versões anteriores
+- Documentar todas as mudanças que possam impactar o sistema
+- Sempre leia todo esquema de banco de dados antes de iniciar uma nova funcionalidade
+- se tiver usando o prisma, se atente aos nomes das entidades e aos nomes dos campos, leia o schema do prisma antes de iniciar uma nova funcionalidade
+
+
 # Cursor Rules for Contract Management Module
 
 # NestJS Architecture
@@ -100,6 +115,9 @@
 - Follow AAA pattern (Arrange-Act-Assert)
 - Use proper test naming conventions
 - Achieve at least 80% test coverage
+- NEVER clean the database after tests
+- Use separate test database for e2e tests
+- Keep production data intact
 
 # Security
 - Validate all inputs

@@ -36,7 +36,7 @@ export class NotificationEventHandler {
             );
 
             if (result.success && result.messageId) {
-                await this.notificationService.markAsSent(event.notificationId, result.messageId);
+                await this.notificationService.markAsSent(event.notificationId);
             } else {
                 await this.notificationService.markAsFailed(event.notificationId);
             }
@@ -47,20 +47,8 @@ export class NotificationEventHandler {
     }
 
     @OnEvent('notification.sent')
-    async handleNotificationSentEvent(event: NotificationSentEvent) {
-        const notification = await this.notificationService.findOne(event.notificationId);
-        const updateDto: UpdateNotificationDto = {
-            contractId: notification.contractId,
-            sellerId: notification.sellerId,
-            type: notification.type,
-            channel: notification.channel,
-            content: notification.content,
-            attemptNumber: notification.attemptNumber,
-            status: ENotificationStatus.SENT,
-            sentAt: event.sentAt,
-            externalId: event.externalId,
-        };
-        await this.notificationService.update(event.notificationId, updateDto);
+    async handleNotificationSent(event: NotificationSentEvent) {
+        await this.notificationService.markAsSent(event.notificationId);
     }
 
     @OnEvent('notification.delivered')

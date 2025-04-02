@@ -5,15 +5,20 @@ import { PrismaService } from '../../../../shared/services/prisma.service';
 import * as Handlebars from 'handlebars';
 import * as puppeteer from 'puppeteer';
 import { CreateTemplateDto } from '../dtos/create-template.dto';
+import { templates } from '@prisma/client';
+import * as mammoth from 'mammoth';
+import * as htmlToText from 'html-to-text';
+import { Document, Packer, Paragraph, TextRun } from 'docx';
 
 @Injectable()
 export class ContractTemplateService implements OnModuleInit {
     private readonly logger = new Logger(ContractTemplateService.name);
     private readonly documentId: string;
-    private activeTemplate: any = null;
+    private activeTemplate: templates | null = null;
+    private activeTemplateId: string = '00000000-0000-0000-0000-000000000000'; // UUID padrão para o template principal
 
     constructor(
-        private readonly googleDocsService: GoogleDocsService,
+        public readonly googleDocsService: GoogleDocsService,
         private readonly configService: ConfigService,
         private readonly prisma: PrismaService,
     ) {
@@ -79,41 +84,48 @@ export class ContractTemplateService implements OnModuleInit {
         await this.syncTemplateFromGoogleDocs();
     }
 
-    async syncTemplateFromGoogleDocs() {
+    private async syncTemplateFromGoogleDocs(): Promise<void> {
         try {
-            this.logger.log('Iniciando sincronização do template do Google Docs');
-            const content = await this.googleDocsService.getDocument(this.documentId);
+            this.logger.log('Iniciando sincronização do template com Google Docs');
+            this.logger.log(`Document ID: ${this.documentId}`);
 
-            // Verifica se já existe um template ativo
-            const existingTemplate = await this.prisma.templates.findFirst({
+            const docxBuffer = await this.googleDocsService.getDocument(this.documentId);
+            this.logger.log('Documento obtido do Google Docs');
+
+            // Converte o Buffer DOCX para HTML usando mammoth
+            const result = await mammoth.convertToHtml({ buffer: docxBuffer });
+            const html = result.value;
+
+            // Primeiro, busca o template ativo
+            const activeTemplate = await this.prisma.templates.findFirst({
                 where: { is_active: true },
             });
 
-            if (existingTemplate) {
-                // Atualiza o template existente
-                const updatedTemplate = await this.prisma.templates.update({
-                    where: { id: existingTemplate.id },
-                    data: {
-                        content,
-                        version: this.incrementVersion(existingTemplate.version),
-                        updated_at: new Date(),
-                    },
-                });
-                this.activeTemplate = updatedTemplate;
-                this.logger.log(`Template atualizado para versão ${updatedTemplate.version}`);
-            } else {
-                // Cria um novo template
-                const newTemplate = await this.prisma.templates.create({
-                    data: {
-                        name: 'Template Principal',
-                        content,
-                        version: '1.0.0',
-                        is_active: true,
-                    },
-                });
-                this.activeTemplate = newTemplate;
-                this.logger.log('Novo template criado com sucesso');
+            if (activeTemplate) {
+                this.activeTemplateId = activeTemplate.id;
             }
+
+            // Atualiza ou cria o template usando a estrutura correta do Prisma
+            const template = await this.prisma.templates.upsert({
+                where: { id: this.activeTemplateId },
+                update: {
+                    name: 'Template Principal',
+                    content: html,
+                    version: '1.0',
+                    is_active: true,
+                    updated_at: new Date(),
+                },
+                create: {
+                    name: 'Template Principal',
+                    content: html,
+                    version: '1.0',
+                    is_active: true,
+                },
+            });
+
+            this.activeTemplate = template;
+            this.activeTemplateId = template.id;
+            this.logger.log('Template sincronizado com sucesso');
         } catch (error) {
             this.logger.error('Erro ao sincronizar template:', error);
             throw error;
@@ -126,9 +138,26 @@ export class ContractTemplateService implements OnModuleInit {
     }
 
     async getActiveTemplate() {
+        this.logger.log('Buscando template ativo...');
+
         if (!this.activeTemplate) {
-            await this.syncTemplateFromGoogleDocs();
+            this.logger.log('Template ativo não encontrado em memória, buscando do banco...');
+            const template = await this.prisma.templates.findFirst({
+                where: { is_active: true },
+            });
+
+            if (!template) {
+                this.logger.log(
+                    'Nenhum template ativo encontrado no banco, sincronizando com Google Docs...',
+                );
+                await this.syncTemplateFromGoogleDocs();
+                return this.activeTemplate;
+            }
+
+            this.activeTemplate = template;
+            this.activeTemplateId = template.id;
         }
+
         return this.activeTemplate;
     }
 
@@ -229,7 +258,38 @@ export class ContractTemplateService implements OnModuleInit {
                 this.logger.debug('HTML gerado:', html);
 
                 // Adiciona os estilos e estrutura HTML
-                return this.wrapWithStyles(html);
+                const fullHtml = this.wrapWithStyles(html);
+
+                // Converte HTML para texto plano
+                const text = htmlToText.convert(fullHtml, {
+                    wordwrap: 130,
+                });
+
+                // Cria o documento DOCX
+                const doc = new Document({
+                    sections: [
+                        {
+                            properties: {},
+                            children: text.split('\n\n').map(
+                                (paragraph) =>
+                                    new Paragraph({
+                                        children: [
+                                            new TextRun({
+                                                text: paragraph,
+                                                size: 24,
+                                            }),
+                                        ],
+                                    }),
+                            ),
+                        },
+                    ],
+                });
+
+                // Gera o buffer do DOCX
+                const buffer = await Packer.toBuffer(doc);
+
+                // Retorna o buffer como base64
+                return buffer.toString('base64');
             } catch (handlebarsError) {
                 this.logger.error('Erro ao compilar template com Handlebars:', handlebarsError);
                 this.logger.error('Template que causou erro:', template.content);
@@ -313,7 +373,7 @@ export class ContractTemplateService implements OnModuleInit {
             }
 
             this.logger.log('Conexão com Google Docs estabelecida com sucesso');
-            return content;
+            return content.toString('base64');
         } catch (error) {
             this.logger.error('Erro ao testar conexão com Google Docs:', error);
             throw error;
@@ -342,21 +402,42 @@ export class ContractTemplateService implements OnModuleInit {
         }
     }
 
-    async create(createTemplateDto: CreateTemplateDto): Promise<any> {
-        const template = await this.prisma.templates.create({
-            data: {
-                name: createTemplateDto.name,
-                content: createTemplateDto.content,
-                version: createTemplateDto.version,
-                is_active: createTemplateDto.isActive,
-            },
-        });
-        return template;
+    async create(data: CreateTemplateDto) {
+        try {
+            this.logger.log('Criando novo template...');
+            const template = await this.prisma.templates.create({
+                data: {
+                    name: data.name,
+                    content: data.content,
+                    version: data.version || '1.0',
+                    is_active: data.isActive ?? false,
+                },
+            });
+
+            this.logger.log(`Template criado com sucesso: ${template.id}`);
+            return template;
+        } catch (error) {
+            this.logger.error('Erro ao criar template:', error);
+            throw error;
+        }
     }
 
-    async remove(id: string): Promise<void> {
-        await this.prisma.templates.delete({
-            where: { id },
-        });
+    async remove(id: string) {
+        try {
+            this.logger.log(`Removendo template: ${id}`);
+            await this.prisma.templates.delete({
+                where: { id },
+            });
+
+            if (this.activeTemplateId === id) {
+                this.activeTemplate = null;
+                this.activeTemplateId = '00000000-0000-0000-0000-000000000000';
+            }
+
+            this.logger.log('Template removido com sucesso');
+        } catch (error) {
+            this.logger.error('Erro ao remover template:', error);
+            throw error;
+        }
     }
 }

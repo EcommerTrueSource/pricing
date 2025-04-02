@@ -1,19 +1,34 @@
-# Sistema de Gerenciamento de Contratos
+# Sistema de Gestão de Contratos
 
-Sistema de gerenciamento de contratos com integração Autentique para assinatura digital.
+Sistema desenvolvido em NestJS para gerenciamento de contratos, integração com serviços externos e automação de fluxos de assinatura.
 
-## Requisitos
+## 🚀 Tecnologias
+
+- **Framework**: NestJS
+- **Linguagem**: TypeScript
+- **Banco de Dados**: PostgreSQL
+- **ORM**: Prisma
+- **Documentação**: Swagger
+- **Integrações**:
+  - Brasil API (consulta de CNPJ)
+  - Autentique (assinatura digital)
+  - Google Docs (templates)
+  - WhatsApp (notificações)
+
+## 📋 Pré-requisitos
 
 - Node.js 18+
 - PostgreSQL 14+
-- NPM ou Yarn
+- Google Cloud Platform (para Google Docs)
+- Conta Autentique
+- Conta WhatsApp Business
 
-## Instalação
+## 🔧 Configuração
 
 1. Clone o repositório:
 ```bash
-git clone https://github.com/seu-usuario/contract-management.git
-cd contract-management
+git clone https://github.com/seu-usuario/pricing.git
+cd pricing
 ```
 
 2. Instale as dependências:
@@ -22,237 +37,248 @@ npm install
 ```
 
 3. Configure as variáveis de ambiente:
-- Copie o arquivo `.env.example` para `.env`
-- Preencha as variáveis necessárias:
-  - `AUTENTIQUE_API_URL`: URL da API do Autentique
-  - `AUTENTIQUE_API_KEY`: Chave de API do Autentique
-  - `DATABASE_URL`: URL de conexão com o banco de dados
-
-4. Execute as migrações do banco de dados:
 ```bash
-npm run migration:run
+cp .env.example .env
 ```
 
-## Executando o Projeto
+4. Configure as seguintes variáveis no arquivo `.env`:
+```env
+# Database
+DATABASE_URL="postgresql://user:password@localhost:5432/pricing?schema=public"
 
-1. Em desenvolvimento:
-```bash
-npm run start:dev
+# Brasil API
+BRASIL_API_URL="https://brasilapi.com.br/api/cnpj/v1"
+
+# Autentique
+AUTENTIQUE_API_KEY="sua-chave-api"
+AUTENTIQUE_API_URL="https://api.autentique.com.br/v2"
+
+# Google Docs
+GOOGLE_DOC_ID="id-do-documento-template"
+GOOGLE_CREDENTIALS="credenciais-do-google"
+
+# WhatsApp
+WHATSAPP_API_KEY="sua-chave-api"
+WHATSAPP_API_URL="https://api.whatsapp.com/v1"
 ```
 
-2. Em produção:
+5. Execute as migrações do banco de dados:
 ```bash
-npm run build
-npm run start
+npx prisma migrate dev
 ```
 
-## Estrutura do Projeto
+## 🏗️ Arquitetura
+
+O projeto segue uma arquitetura modular com os seguintes componentes principais:
+
+### Módulos
+
+1. **Contract Management**
+   - Gerenciamento de contratos
+   - Templates de contrato
+   - Notificações
+   - Webhooks
+
+2. **Integration**
+   - Brasil API
+   - Autentique
+   - Google Docs
+   - WhatsApp
+
+3. **Security**
+   - Autenticação
+   - Autorização
+   - Rate Limiting
+
+### Estrutura de Diretórios
 
 ```
 src/
 ├── modules/
 │   ├── contract-management/
-│   │   ├── controllers/
-│   │   ├── services/
-│   │   ├── entities/
-│   │   └── dtos/
-│   └── integration/
-│       └── autentique/
-│           ├── services/
-│           ├── interfaces/
-│           └── autentique.module.ts
-├── config/
-└── main.ts
+│   │   ├── contract/
+│   │   ├── template/
+│   │   ├── notification/
+│   │   └── webhook/
+│   ├── integration/
+│   │   ├── brasil-api/
+│   │   ├── autentique/
+│   │   ├── google-docs/
+│   │   └── whatsapp/
+│   └── security/
+├── shared/
+│   ├── services/
+│   └── modules/
+└── app.module.ts
 ```
 
-## Funcionalidades
+## 📊 Banco de Dados
 
-- Gerenciamento de contratos
-- Integração com Autentique para assinatura digital
-- Rate limiting para chamadas à API
-- Validação de dados
-- Logging de erros
+### Schema
 
-## Testes
+#### Sellers
+```prisma
+model sellers {
+  id            String     @id @default(uuid())
+  cnpj          String     @unique
+  razao_social  String
+  email         String
+  telefone      String
+  endereco      String
+  created_at    DateTime   @default(now())
+  updated_at    DateTime   @updatedAt
+  contracts     contracts[]
+}
+```
 
+#### Contracts
+```prisma
+model contracts {
+  id                    String         @id @default(uuid())
+  seller_id            String
+  template_id          String
+  status               contract_status
+  content              String
+  external_id          String
+  signing_url          String
+  notification_attempts Int            @default(0)
+  last_notification_at DateTime
+  signed_at            DateTime?
+  expires_at           DateTime
+  created_at           DateTime        @default(now())
+  updated_at           DateTime        @updatedAt
+  seller               sellers         @relation(fields: [seller_id], references: [id])
+  template             contract_templates @relation(fields: [template_id], references: [id])
+}
+```
+
+#### Contract Templates
+```prisma
+model contract_templates {
+  id        String     @id @default(uuid())
+  name      String
+  content   String
+  version   String
+  is_active Boolean    @default(true)
+  created_at DateTime  @default(now())
+  updated_at DateTime  @updatedAt
+  contracts contracts[]
+}
+```
+
+#### Notifications
+```prisma
+model notifications {
+  id           String           @id @default(uuid())
+  contract_id  String
+  seller_id    String
+  type         notification_type
+  channel      notification_channel
+  content      String
+  status       notification_status
+  attempt_number Int
+  external_id  String
+  sent_at      DateTime
+  delivered_at DateTime?
+  created_at   DateTime        @default(now())
+  contract     contracts       @relation(fields: [contract_id], references: [id])
+  seller       sellers         @relation(fields: [seller_id], references: [id])
+}
+```
+
+## 🔄 Fluxos
+
+### 1. Criação de Contrato via Webhook
+
+1. Recebe webhook com dados do vendedor (CNPJ, email, telefone)
+2. Valida os dados recebidos
+3. Busca dados na Brasil API
+4. Verifica se o vendedor já existe:
+   - Se não existe: cria novo vendedor
+   - Se existe: atualiza email e telefone
+5. Verifica se o vendedor já tem contrato assinado:
+   - Se tem: retorna mensagem
+   - Se não tem: continua o fluxo
+6. Obtém o template ativo
+7. Cria uma cópia do template com dados do seller
+8. Cria o contrato
+9. Envia para assinatura
+10. Retorna dados do contrato criado
+
+### 2. Notificações
+
+1. Contrato criado e enviado para assinatura
+2. Sistema agenda primeira notificação
+3. Envia notificação via WhatsApp
+4. Se não assinar em 5 dias:
+   - Agenda nova notificação
+   - Incrementa contador de tentativas
+5. Máximo de 5 tentativas de notificação
+
+## 🧪 Testes
+
+O projeto possui três níveis de testes:
+
+1. **Unitários**
+   - Testam componentes isolados
+   - Mocks para dependências
+   - Cobertura mínima de 80%
+
+2. **Integração**
+   - Testam integrações com serviços externos
+   - Validação de respostas
+   - Tratamento de erros
+
+3. **E2E**
+   - Testam fluxos completos
+   - Simulação de cenários reais
+   - Validação de resultados
+
+Para executar os testes:
 ```bash
-# Testes unitários
+# Unitários
 npm run test
 
-# Testes e2e
+# Integração
 npm run test:e2e
+
+# Cobertura
+npm run test:cov
 ```
 
-## Contribuindo
+## 📚 Documentação
 
-1. Faça um fork do projeto
-2. Crie uma branch para sua feature (`git checkout -b feature/AmazingFeature`)
-3. Commit suas mudanças (`git commit -m 'Add some AmazingFeature'`)
-4. Push para a branch (`git push origin feature/AmazingFeature`)
-5. Abra um Pull Request
-
-## Licença
-
-Este projeto está sob a licença MIT. Veja o arquivo [LICENSE](LICENSE) para mais detalhes.
-
-## 🚀 Funcionalidades
-
-- **Gestão de Contratos**
-
-  - Criação, atualização e remoção de contratos
-  - Controle de status e versões
-  - Assinatura digital
-  - Cancelamento com motivo
-
-- **Gestão de Vendedores**
-
-  - Cadastro completo de vendedores
-  - Validação de CNPJ via Brasil API
-  - Histórico de contratos
-
-- **Templates de Contrato**
-
-  - Versionamento de templates
-  - Controle de versões ativas/inativas
-  - Histórico de alterações
-
-- **Sistema de Notificações**
-
-  - Múltiplos canais (WhatsApp, Email, SMS)
-  - Controle de status de envio
-  - Retry automático
-  - Histórico de tentativas
-
-- **Segurança**
-  - Autenticação JWT
-  - Controle de acesso baseado em roles
-  - Proteção de rotas
-  - Validação de dados
-
-## 🛠️ Tecnologias
-
-- NestJS
-- Prisma ORM
-- PostgreSQL (Cloud SQL)
-- JWT
-- Swagger/OpenAPI
-- Docker
-- Brasil API
-
-## 📋 Pré-requisitos
-
-- Node.js (v16 ou superior)
-- PostgreSQL (v12 ou superior)
-- npm ou yarn
-- Docker e Docker Compose (opcional)
-- Conta Google Cloud Platform (para Cloud SQL)
-
-## 🔧 Instalação
-
-### Usando Docker (Recomendado)
-
-1. Clone o repositório:
-
-```bash
-git clone https://github.com/seu-usuario/contract-management.git
-cd contract-management
-```
-
-2. Configure as variáveis de ambiente:
-
-```bash
-cp .env.example .env.local
-```
-
-3. Inicie os containers:
-
-```bash
-docker-compose up -d
-```
-
-4. Execute as migrações do Prisma:
-
-```bash
-docker-compose exec api npx prisma migrate deploy
-```
-
-5. Acesse a aplicação:
-
+A documentação da API está disponível via Swagger em:
 ```
 http://localhost:3000/api
 ```
 
-### Instalação Local
+## 🔒 Segurança
 
-1. Clone o repositório:
+- Validação de inputs
+- Sanitização de outputs
+- Autenticação JWT
+- RBAC (Role-Based Access Control)
+- Rate Limiting
+- Proteção contra ataques comuns (OWASP)
 
+## 🚀 Deploy
+
+1. Build do projeto:
 ```bash
-git clone https://github.com/seu-usuario/contract-management.git
-cd contract-management
+npm run build
 ```
 
-2. Instale as dependências:
-
-```bash
-npm install
-# ou
-yarn install
-```
-
-3. Configure as variáveis de ambiente:
-
-```bash
-cp .env.example .env.local
-```
-
-4. Configure as variáveis no arquivo `.env.local`:
-
-```env
-# Ambiente
-NODE_ENV=development
-
-# Banco de Dados (Cloud SQL)
-DB_HOST=localhost
-DB_PORT=5432
-DB_USERNAME=postgres
-DB_PASSWORD=postgres
-DB_DATABASE=pricing_db
-INSTANCE_CONNECTION_NAME=seu-projeto:regiao:instancia
-
-# JWT
-JWT_SECRET=your-super-secret-key-change-in-production
-JWT_EXPIRATION=1d
-
-# APIs Externas
-WHATSAPP_API_KEY=your-whatsapp-api-key
-WHATSAPP_API_URL=https://api.whatsapp.com/v1
-
-EMAIL_API_KEY=your-email-api-key
-EMAIL_API_URL=https://api.email-service.com/v1
-
-SMS_API_KEY=your-sms-api-key
-SMS_API_URL=https://api.sms-service.com/v1
-
-SIGNATURE_API_KEY=your-signature-api-key
-SIGNATURE_API_URL=https://api.signature-service.com/v1
-
-# Application
-PORT=3000
-API_PREFIX=api
-```
-
-5. Inicie o Cloud SQL Proxy:
-
-```bash
-npm run start:proxy
-```
-
-6. Em outro terminal, execute as migrações do Prisma:
-
+2. Executar migrações:
 ```bash
 npx prisma migrate deploy
 ```
 
-7. Inicie o servidor:
-
+3. Iniciar aplicação:
+```bash
+npm run start:prod
 ```
+
+## 📝 Licença
+
+Este projeto está sob a licença MIT. Veja o arquivo [LICENSE](LICENSE) para mais detalhes.

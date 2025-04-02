@@ -22,7 +22,9 @@ export class BrasilApiService {
     }
 
     private formatCnpj(cnpj: string): string {
-        return cnpj.replace(/[^\d]/g, '');
+        const cleaned = cnpj.replace(/[^\d]/g, '');
+        this.logger.debug(`CNPJ formatado: ${cleaned}`);
+        return cleaned;
     }
 
     private mapResponseToSellerData(response: IBrasilApiResponse): ISellerData {
@@ -44,7 +46,7 @@ export class BrasilApiService {
         try {
             this.logger.debug(`Iniciando busca de dados para CNPJ: ${cnpj}`);
             const formattedCnpj = this.formatCnpj(cnpj);
-            this.logger.debug(`CNPJ limpo: ${formattedCnpj}`);
+            this.logger.debug(`CNPJ formatado: ${formattedCnpj}`);
 
             const url = `${this.baseUrl}/cnpj/v1/${formattedCnpj}`;
             this.logger.debug(`URL da requisição: ${url}`);
@@ -58,22 +60,25 @@ export class BrasilApiService {
                 ),
             );
 
-            this.logger.debug('Dados do CNPJ processados com sucesso');
             if (!response) {
+                this.logger.error('CNPJ não encontrado na Brasil API');
                 throw new HttpException('CNPJ não encontrado na Brasil API', HttpStatus.NOT_FOUND);
             }
 
-            return this.mapResponseToSellerData(response);
+            const mappedData = this.mapResponseToSellerData(response);
+            this.logger.debug('Dados mapeados:', mappedData);
+            return mappedData;
         } catch (error) {
             this.logger.error('Erro detalhado na chamada à Brasil API:', {
                 error: error instanceof Error ? error.message : 'Erro desconhecido',
                 stack: error instanceof Error ? error.stack : undefined,
                 response: error.response?.data,
                 status: error.response?.status,
+                url: `${this.baseUrl}/cnpj/v1/${this.formatCnpj(cnpj)}`,
             });
             throw new HttpException(
                 `Erro ao buscar dados do CNPJ ${cnpj}: ${error instanceof Error ? error.message : 'Erro desconhecido'}`,
-                HttpStatus.INTERNAL_SERVER_ERROR,
+                error.response?.status || HttpStatus.INTERNAL_SERVER_ERROR,
             );
         }
     }

@@ -1,12 +1,13 @@
 import { Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
+import { AutentiqueModule } from './autentique/autentique.module';
+import { BrasilApiModule } from './brasil-api/brasil-api.module';
 import { WhatsAppService } from './services/whatsapp.service';
-import { RateLimiterService } from '../../shared/services/rate-limiter.service';
-import { ValidationService } from '../../shared/services/validation.service';
+import { RateLimiterModule } from '../../shared/modules/rate-limiter.module';
+import { ValidationModule } from '../../shared/modules/validation.module';
 
 @Module({
-    imports: [ConfigModule],
-    providers: [WhatsAppService, RateLimiterService, ValidationService],
+    imports: [AutentiqueModule, BrasilApiModule, RateLimiterModule, ValidationModule],
+    providers: [WhatsAppService],
     exports: [WhatsAppService],
 })
 export class IntegrationModule {}

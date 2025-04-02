@@ -59,7 +59,10 @@ describe('WhatsApp Integration Tests', () => {
         console.log('Número:', phoneNumber);
         console.log('Parâmetros:', params);
 
-        const result = await whatsappService.sendContractNotification(phoneNumber, params);
+        const result = await whatsappService.sendContractNotification(phoneNumber, {
+            ...params,
+            notificationAttempts: 1,
+        });
 
         console.log('Resultado da notificação:', result);
 
@@ -85,7 +88,12 @@ describe('WhatsApp Integration Tests', () => {
         const results = await Promise.all(
             Array(6)
                 .fill(null)
-                .map(() => whatsappService.sendContractNotification(phoneNumber, params)),
+                .map(() =>
+                    whatsappService.sendContractNotification(phoneNumber, {
+                        ...params,
+                        notificationAttempts: 1,
+                    }),
+                ),
         );
 
         // Verificar se a última mensagem foi bloqueada pelo rate limit

@@ -6,15 +6,15 @@
     "deleteOutDir": true,
     "webpack": true,
     "tsConfigPath": "tsconfig.json",
-    "assets": [
+    "assets": ["**/*.proto"],
+    "watchAssets": true,
+    "plugins": [
       {
-        "include": "**/*.json",
-        "outDir": "dist/src"
-      },
-      {
-        "include": "modules/contract-management/template/templates/**/*",
-        "outDir": "dist/src",
-        "watchAssets": true
+        "name": "@nestjs/swagger",
+        "options": {
+          "classValidatorShim": true,
+          "introspectComments": true
+        }
       }
     ]
   }

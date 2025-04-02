@@ -25,12 +25,12 @@ export class RateLimiterService {
         });
     }
 
-    async checkRateLimit(sellerId: string): Promise<boolean> {
+    async checkRateLimit(key: string): Promise<boolean> {
         try {
-            await this.rateLimiter.consume(sellerId);
+            await this.rateLimiter.consume(key);
             return true;
         } catch (error) {
-            this.logger.warn(`Rate limit excedido para o vendedor ${sellerId}: ${error.message}`);
+            this.logger.warn(`Rate limit excedido para o vendedor ${key}: ${error.message}`);
             return false;
         }
     }

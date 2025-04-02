@@ -19,7 +19,10 @@ export class SellerService {
 
   async create(createSellerDto: CreateSellerDto): Promise<SellerResponseDto> {
     try {
+      this.logger.log(`Iniciando criação de seller com CNPJ: ${createSellerDto.cnpj}`);
+
       const sellerData = await this.brasilApiService.getSellerData(createSellerDto.cnpj);
+      this.logger.log(`Dados obtidos da Brasil API: ${JSON.stringify(sellerData)}`);
 
       const seller = await this.prisma.sellers.create({
         data: {
@@ -30,8 +33,12 @@ export class SellerService {
           endereco: `${sellerData.endereco.logradouro}, ${sellerData.endereco.numero} - ${sellerData.endereco.bairro}, ${sellerData.endereco.municipio} - ${sellerData.endereco.uf}, ${sellerData.endereco.cep}`,
         },
       });
+
+      this.logger.log(`Seller criado com sucesso: ${JSON.stringify(seller)}`);
       return this.mapToResponseDto(seller);
     } catch (error) {
+      this.logger.error(`Erro ao criar seller: ${error instanceof Error ? error.message : 'Erro desconhecido'}`);
+      this.logger.error(`Stack trace: ${error instanceof Error ? error.stack : 'Stack trace não disponível'}`);
       throw new Error(`Erro ao criar seller: ${error instanceof Error ? error.message : 'Erro desconhecido'}`);
     }
   }

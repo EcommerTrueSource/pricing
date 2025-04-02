@@ -8,9 +8,9 @@ import { GoogleDocsService } from './services/google-docs.service';
 import { TemplatePreviewController } from './controllers/template-preview.controller';
 
 @Module({
-  imports: [PrismaModule, ConfigModule],
-  controllers: [TemplateController, TemplatePreviewController],
-  providers: [TemplateService, ContractTemplateService, GoogleDocsService],
-  exports: [ContractTemplateService, GoogleDocsService],
+    imports: [PrismaModule, ConfigModule],
+    controllers: [TemplateController, TemplatePreviewController],
+    providers: [TemplateService, ContractTemplateService, GoogleDocsService],
+    exports: [ContractTemplateService, GoogleDocsService],
 })
-export class TemplateModule {}
+export class ContractTemplateModule {}
