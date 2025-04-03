@@ -6,8 +6,13 @@ import { ContractEventHandler } from './handlers/contract-event.handler';
 import { NotificationEventHandler } from './handlers/notification-event.handler';
 
 @Module({
-  imports: [EventEmitterModule.forRoot()],
-  providers: [ContractEventHandler, NotificationEventHandler, ContractService, NotificationService],
-  exports: [EventEmitterModule],
+    imports: [EventEmitterModule.forRoot()],
+    providers: [
+        ContractEventHandler,
+        NotificationEventHandler,
+        ContractService,
+        NotificationService,
+    ],
+    exports: [EventEmitterModule],
 })
 export class EventsModule {}

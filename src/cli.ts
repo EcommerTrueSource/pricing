@@ -7,22 +7,22 @@ import { UpdateRemainingSellersCommand } from './modules/contract-management/com
 import { SellerModule } from './modules/contract-management/seller/seller.module';
 
 @Module({
-  imports: [
-    ConfigModule.forRoot({
-      isGlobal: true,
-      envFilePath: '.env.local',
-    }),
-    ContractManagementModule,
-    SellerModule,
-  ],
-  providers: [UpdateSellersCommand, UpdateRemainingSellersCommand],
+    imports: [
+        ConfigModule.forRoot({
+            isGlobal: true,
+            envFilePath: '.env.local',
+        }),
+        ContractManagementModule,
+        SellerModule,
+    ],
+    providers: [UpdateSellersCommand, UpdateRemainingSellersCommand],
 })
 class CommandModule {}
 
 async function bootstrap() {
-  await CommandFactory.run(CommandModule, {
-    logger: ['error', 'warn', 'log'],
-  });
+    await CommandFactory.run(CommandModule, {
+        logger: ['error', 'warn', 'log'],
+    });
 }
 
 bootstrap();

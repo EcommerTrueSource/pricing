@@ -22,37 +22,46 @@ export class RateLimiterService {
             points: config.points,
             duration: config.duration,
             blockDuration: config.duration * 2, // Bloqueia por 2x o tempo normal
+            keyPrefix: 'rate-limit:', // Prefixo para as chaves no Redis
         });
     }
 
     async checkRateLimit(key: string): Promise<boolean> {
         try {
-            await this.rateLimiter.consume(key);
-            return true;
+            const result = await this.rateLimiter.consume(key);
+            this.logger.debug(
+                `Rate limit check para ${key}: ${result.remainingPoints} pontos restantes`,
+            );
+            return result.remainingPoints > 0;
         } catch (error) {
-            this.logger.warn(`Rate limit excedido para o vendedor ${key}: ${error.message}`);
+            if (error instanceof Error) {
+                this.logger.warn(`Rate limit excedido para ${key}: ${error.message}`);
+            }
             return false;
         }
     }
 
-    async resetRateLimit(sellerId: string): Promise<void> {
+    async resetRateLimit(key: string): Promise<void> {
         try {
-            await this.rateLimiter.delete(sellerId);
-            this.logger.debug(`Rate limit resetado para o vendedor ${sellerId}`);
+            await this.rateLimiter.delete(key);
+            this.logger.debug(`Rate limit resetado para ${key}`);
         } catch (error) {
-            this.logger.error(
-                `Erro ao resetar rate limit para o vendedor ${sellerId}: ${error.message}`,
-            );
+            this.logger.error(`Erro ao resetar rate limit para ${key}: ${error.message}`);
+            throw error;
         }
     }
 
     private getRateLimitConfig(): RateLimitConfig {
-        return {
-            points: this.configService.get<number>('RATE_LIMIT_POINTS', this.defaultConfig.points),
-            duration: this.configService.get<number>(
-                'RATE_LIMIT_DURATION',
-                this.defaultConfig.duration,
-            ),
-        };
+        const points = this.configService.get<number>('RATE_LIMIT_POINTS');
+        const duration = this.configService.get<number>('RATE_LIMIT_DURATION');
+
+        if (points && duration) {
+            return { points, duration };
+        }
+
+        this.logger.warn(
+            'Usando configuração padrão de rate limit. Configure RATE_LIMIT_POINTS e RATE_LIMIT_DURATION no .env',
+        );
+        return this.defaultConfig;
     }
 }

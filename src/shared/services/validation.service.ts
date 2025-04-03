@@ -16,9 +16,22 @@ interface ValidationResult {
 export class ValidationService {
     private readonly logger = new Logger(ValidationService.name);
     private readonly allowedDomains: string[];
+    private readonly maxMessageLength: number;
 
     constructor(private readonly configService: ConfigService) {
-        this.allowedDomains = this.configService.get<string>('ALLOWED_DOMAINS', '').split(',');
+        this.allowedDomains = this.configService
+            .get<string>('ALLOWED_DOMAINS', '')
+            .split(',')
+            .map((domain) => domain.trim())
+            .filter((domain) => domain.length > 0);
+
+        this.maxMessageLength = this.configService.get<number>('MAX_MESSAGE_LENGTH', 4096);
+
+        if (this.allowedDomains.length === 0) {
+            this.logger.warn(
+                'Nenhum domínio permitido configurado. Configure ALLOWED_DOMAINS no .env',
+            );
+        }
     }
 
     /**
@@ -31,12 +44,16 @@ export class ValidationService {
             const parsedUrl = new URL(url);
 
             // Verifica se o domínio está na lista de permitidos
-            if (
-                this.allowedDomains.length > 0 &&
-                !this.allowedDomains.includes(parsedUrl.hostname)
-            ) {
-                this.logger.warn(`URL com domínio não permitido: ${parsedUrl.hostname}`);
-                return false;
+            if (this.allowedDomains.length > 0) {
+                const isAllowed = this.allowedDomains.some(
+                    (domain) =>
+                        parsedUrl.hostname === domain || parsedUrl.hostname.endsWith(`.${domain}`),
+                );
+
+                if (!isAllowed) {
+                    this.logger.warn(`URL com domínio não permitido: ${parsedUrl.hostname}`);
+                    return false;
+                }
             }
 
             // Verifica se é HTTPS
@@ -58,6 +75,10 @@ export class ValidationService {
      * @returns Conteúdo sanitizado
      */
     sanitizeContent(content: string): string {
+        if (!content) {
+            return '';
+        }
+
         // Remove caracteres especiais perigosos
         let sanitized = content
             .replace(/[<>]/g, '') // Remove tags HTML
@@ -69,10 +90,11 @@ export class ValidationService {
             .replace(/on\w+='[^']*'/gi, ''); // Remove eventos inline com aspas simples
 
         // Limita o tamanho da mensagem
-        const maxLength = this.configService.get<number>('MAX_MESSAGE_LENGTH', 4096);
-        if (sanitized.length > maxLength) {
-            this.logger.warn(`Mensagem truncada: ${sanitized.length} > ${maxLength} caracteres`);
-            sanitized = sanitized.substring(0, maxLength) + '...';
+        if (sanitized.length > this.maxMessageLength) {
+            this.logger.warn(
+                `Mensagem truncada: ${sanitized.length} > ${this.maxMessageLength} caracteres`,
+            );
+            sanitized = sanitized.substring(0, this.maxMessageLength) + '...';
         }
 
         return sanitized;
@@ -98,18 +120,19 @@ export class ValidationService {
             };
         }
 
-        try {
-            new URL(params.contractUrl);
-        } catch (error) {
+        if (!this.validateUrl(params.contractUrl)) {
             return {
                 isValid: false,
-                error: 'URL do contrato inválida',
+                error: 'URL do contrato inválida ou não permitida',
             };
         }
 
         return {
             isValid: true,
-            params,
+            params: {
+                razaoSocial: params.razaoSocial.trim(),
+                contractUrl: params.contractUrl.trim(),
+            },
         };
     }
 }

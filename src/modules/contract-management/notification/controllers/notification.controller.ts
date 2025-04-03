@@ -118,7 +118,7 @@ export class NotificationController {
     }
 
     @Get(':id')
-    @Roles('ADMIN', 'MANAGER', 'USER')
+    @Roles('ADMIN', 'MANAGER')
     @ApiOperation({ summary: 'Buscar notificação por ID' })
     @ApiResponse({
         status: 200,
@@ -129,7 +129,7 @@ export class NotificationController {
     @ApiResponse({ status: 401, description: 'Não autorizado' })
     @ApiResponse({ status: 403, description: 'Acesso negado' })
     async findOne(@Param('id') id: string): Promise<NotificationResponseDto> {
-        return await this.notificationService.findOne(id);
+        return await this.notificationService.findById(id);
     }
 
     @Patch(':id')

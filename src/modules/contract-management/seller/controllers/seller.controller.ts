@@ -9,90 +9,94 @@ import { SellerResponseDto } from '../dtos/seller-response.dto';
 @ApiTags('vendedores')
 @Controller('sellers')
 export class SellerController {
-  constructor(private readonly sellerService: SellerService) {}
+    constructor(private readonly sellerService: SellerService) {}
 
-  @Post()
-  @ApiOperation({ summary: 'Criar um novo vendedor' })
-  @ApiResponse({ status: 201, description: 'Vendedor criado com sucesso', type: SellerResponseDto })
-  @ApiResponse({ status: 400, description: 'Dados inválidos' })
-  @ApiResponse({ status: 409, description: 'CNPJ já cadastrado' })
-  async create(@Body() createSellerDto: CreateSellerDto): Promise<SellerResponseDto> {
-    return this.sellerService.create(createSellerDto);
-  }
+    @Post()
+    @ApiOperation({ summary: 'Criar um novo vendedor' })
+    @ApiResponse({
+        status: 201,
+        description: 'Vendedor criado com sucesso',
+        type: SellerResponseDto,
+    })
+    @ApiResponse({ status: 400, description: 'Dados inválidos' })
+    @ApiResponse({ status: 409, description: 'CNPJ já cadastrado' })
+    async create(@Body() createSellerDto: CreateSellerDto): Promise<SellerResponseDto> {
+        return this.sellerService.create(createSellerDto);
+    }
 
-  @Get()
-  @ApiOperation({ summary: 'Listar todos os vendedores' })
-  @ApiResponse({ status: 200, description: 'Lista de vendedores', type: [SellerResponseDto] })
-  async findAll(): Promise<SellerResponseDto[]> {
-    return this.sellerService.findAll();
-  }
+    @Get()
+    @ApiOperation({ summary: 'Listar todos os vendedores' })
+    @ApiResponse({ status: 200, description: 'Lista de vendedores', type: [SellerResponseDto] })
+    async findAll(): Promise<SellerResponseDto[]> {
+        return this.sellerService.findAll();
+    }
 
-  @Get(':id')
-  @ApiOperation({ summary: 'Buscar um vendedor por ID' })
-  @ApiResponse({ status: 200, description: 'Vendedor encontrado', type: SellerResponseDto })
-  @ApiResponse({ status: 404, description: 'Vendedor não encontrado' })
-  async findOne(@Param('id') id: string): Promise<SellerResponseDto> {
-    return this.sellerService.findOne(id);
-  }
+    @Get(':id')
+    @ApiOperation({ summary: 'Buscar um vendedor por ID' })
+    @ApiResponse({ status: 200, description: 'Vendedor encontrado', type: SellerResponseDto })
+    @ApiResponse({ status: 404, description: 'Vendedor não encontrado' })
+    async findOne(@Param('id') id: string): Promise<SellerResponseDto> {
+        return this.sellerService.findOne(id);
+    }
 
-  @Patch(':id')
-  @ApiOperation({ summary: 'Atualizar um vendedor' })
-  @ApiResponse({
-    status: 200,
-    description: 'Vendedor atualizado com sucesso',
-    type: SellerResponseDto,
-  })
-  @ApiResponse({ status: 404, description: 'Vendedor não encontrado' })
-  @ApiResponse({ status: 409, description: 'CNPJ já cadastrado' })
-  async update(
-    @Param('id') id: string,
-    @Body() updateSellerDto: UpdateSellerDto,
-  ): Promise<SellerResponseDto> {
-    return this.sellerService.update(id, updateSellerDto);
-  }
+    @Patch(':id')
+    @ApiOperation({ summary: 'Atualizar um vendedor' })
+    @ApiResponse({
+        status: 200,
+        description: 'Vendedor atualizado com sucesso',
+        type: SellerResponseDto,
+    })
+    @ApiResponse({ status: 404, description: 'Vendedor não encontrado' })
+    @ApiResponse({ status: 409, description: 'CNPJ já cadastrado' })
+    async update(
+        @Param('id') id: string,
+        @Body() updateSellerDto: UpdateSellerDto,
+    ): Promise<SellerResponseDto> {
+        return this.sellerService.update(id, updateSellerDto);
+    }
 
-  @Delete(':id')
-  @ApiOperation({ summary: 'Remover um vendedor' })
-  @ApiResponse({ status: 200, description: 'Vendedor removido com sucesso' })
-  @ApiResponse({ status: 404, description: 'Vendedor não encontrado' })
-  async remove(@Param('id') id: string): Promise<void> {
-    await this.sellerService.remove(id);
-  }
+    @Delete(':id')
+    @ApiOperation({ summary: 'Remover um vendedor' })
+    @ApiResponse({ status: 200, description: 'Vendedor removido com sucesso' })
+    @ApiResponse({ status: 404, description: 'Vendedor não encontrado' })
+    async remove(@Param('id') id: string): Promise<void> {
+        await this.sellerService.remove(id);
+    }
 
-  @Post('update-all-from-brasil-api')
-  @ApiOperation({ summary: 'Atualiza dados de todos os vendedores usando a Brasil API' })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Dados atualizados com sucesso',
-    schema: {
-      properties: {
-        success: { type: 'number' },
-        failed: { type: 'number' },
-        errors: {
-          type: 'array',
-          items: {
-            type: 'object',
+    @Post('update-all-from-brasil-api')
+    @ApiOperation({ summary: 'Atualiza dados de todos os vendedores usando a Brasil API' })
+    @ApiResponse({
+        status: HttpStatus.OK,
+        description: 'Dados atualizados com sucesso',
+        schema: {
             properties: {
-              cnpj: { type: 'string' },
-              error: { type: 'string' },
+                success: { type: 'number' },
+                failed: { type: 'number' },
+                errors: {
+                    type: 'array',
+                    items: {
+                        type: 'object',
+                        properties: {
+                            cnpj: { type: 'string' },
+                            error: { type: 'string' },
+                        },
+                    },
+                },
             },
-          },
         },
-      },
-    },
-  })
-  async updateAllSellersDataFromBrasilApi() {
-    return this.sellerService.updateAllSellersDataFromBrasilApi();
-  }
+    })
+    async updateAllSellersDataFromBrasilApi() {
+        return this.sellerService.updateAllSellersDataFromBrasilApi();
+    }
 
-  @Post(':id/update-from-brasil-api')
-  @ApiOperation({ summary: 'Atualiza dados de um vendedor específico usando a Brasil API' })
-  @ApiResponse({
-    status: HttpStatus.OK,
-    description: 'Dados atualizados com sucesso',
-    type: Object,
-  })
-  async updateSellerDataFromBrasilApi(@Param('id') id: string) {
-    return this.sellerService.updateFromBrasilApi(id);
-  }
+    @Post(':id/update-from-brasil-api')
+    @ApiOperation({ summary: 'Atualiza dados de um vendedor específico usando a Brasil API' })
+    @ApiResponse({
+        status: HttpStatus.OK,
+        description: 'Dados atualizados com sucesso',
+        type: Object,
+    })
+    async updateSellerDataFromBrasilApi(@Param('id') id: string) {
+        return this.sellerService.updateFromBrasilApi(id);
+    }
 }

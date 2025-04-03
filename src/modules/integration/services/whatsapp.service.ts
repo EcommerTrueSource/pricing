@@ -1,14 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import axios, { AxiosError } from 'axios';
+import axios from 'axios';
 import { RateLimiterService } from '../../../shared/services/rate-limiter.service';
 import { ValidationService } from '../../../shared/services/validation.service';
-
-interface ZApiResponse {
-    zaapId: string;
-    messageId: string;
-    id: string;
-}
+import { IMessagingService } from '../../contract-management/notification/interfaces/messaging-service.interface';
+import { Notification } from '../../contract-management/notification/entities/notification.entity';
 
 interface ContractNotificationParams {
     razaoSocial: string;
@@ -17,244 +13,272 @@ interface ContractNotificationParams {
     notificationAttempts: number;
 }
 
+/**
+ * Serviço responsável por enviar mensagens via WhatsApp
+ * Implementa a interface IMessagingService para integração com o sistema de notificações
+ */
 @Injectable()
-export class WhatsAppService {
+export class WhatsAppService implements IMessagingService {
     private readonly logger = new Logger(WhatsAppService.name);
-    private readonly baseUrl: string;
-    private readonly instanceId: string;
-    private readonly instanceToken: string;
+    private readonly instanceApi: string;
     private readonly clientToken: string;
-    private readonly MAX_RETRIES = 3;
-    private readonly INITIAL_DELAY = 1000;
 
+    /**
+     * Construtor do serviço de WhatsApp
+     * @param configService Serviço de configuração para obter variáveis de ambiente
+     * @param rateLimiter Serviço de controle de rate limit
+     * @param validationService Serviço de validação de dados
+     */
     constructor(
         private readonly configService: ConfigService,
         private readonly rateLimiter: RateLimiterService,
         private readonly validationService: ValidationService,
     ) {
-        this.baseUrl = this.configService.get<string>('ZAPI_BASE_URL');
-        this.instanceId = this.configService.get<string>('ZAPI_INSTANCE_ID');
-        this.instanceToken = this.configService.get<string>('ZAPI_TOKEN');
-        this.clientToken = this.configService.get<string>('ZAPI_CLIENT_TOKEN');
+        const baseUrl = this.configService.get<string>('ZAPI_BASE_URL');
+        const instanceId = this.configService.get<string>('ZAPI_INSTANCE_ID');
+        const instanceToken = this.configService.get<string>('ZAPI_TOKEN');
+        const clientToken = this.configService.get<string>('ZAPI_CLIENT_TOKEN');
+
+        if (!baseUrl || !instanceId || !instanceToken || !clientToken) {
+            throw new Error('Configurações da Z-API não encontradas');
+        }
+
+        this.instanceApi = `${baseUrl}/instances/${instanceId}/token/${instanceToken}`;
+        this.clientToken = clientToken;
+
+        this.logger.log(`Configurações carregadas:
+            instanceApi: ${this.instanceApi}
+            clientToken: ***
+        `);
     }
 
+    /**
+     * Retorna o nome do serviço de mensageria
+     * @returns Nome do serviço (WHATSAPP)
+     */
+    getServiceName(): string {
+        return 'WHATSAPP';
+    }
+
+    /**
+     * Envia uma mensagem de TEXTO SIMPLES via WhatsApp
+     * @param notification Objeto de notificação contendo os dados do destinatário e mensagem
+     * @returns Objeto com o ID da mensagem enviada (ou null)
+     * @throws Error em caso de falha no envio
+     */
+    async sendMessage(notification: Notification): Promise<{ messageId: string | null }> {
+        // Este método agora é APENAS para texto simples, usando /send-text
+        try {
+            this.logger.debug(
+                `[sendMessage] Iniciando envio de texto simples para ${notification.sellers?.telefone}`,
+            );
+
+            const canSend = await this.rateLimiter.checkRateLimit(notification.sellers?.id);
+            if (!canSend) throw new Error('Rate limit exceeded');
+
+            const sanitizedContent = this.validationService.sanitizeContent(notification.content);
+            const formattedPhone = this.formatPhoneNumber(notification.sellers?.telefone);
+
+            const body = { phone: formattedPhone, message: sanitizedContent };
+            const endpoint = '/send-text';
+
+            const response = await this.sendToZApi(endpoint, body);
+
+            this.logger.debug(`[sendMessage] Resposta da API (${endpoint}):
+                Status: ${response.status}
+                Data: ${JSON.stringify(response.data, null, 2)}
+            `);
+
+            const messageId = response.data?.id || response.data?.zaapId || null;
+            if (!messageId) {
+                this.logger.warn(
+                    `[sendMessage] API Z-API (${endpoint}) não retornou ID conhecido.`,
+                );
+            }
+            return { messageId: typeof messageId === 'string' ? messageId : null };
+        } catch (error) {
+            this.handleApiError('[sendMessage]', error);
+            throw error;
+        }
+    }
+
+    /**
+     * Envia uma notificação de CONTRATO (com link) via WhatsApp
+     * Usa o endpoint /send-link com a estrutura correta.
+     */
     async sendContractNotification(
         phoneNumber: string,
         params: ContractNotificationParams,
-    ): Promise<{ success: boolean; messageId?: string; error?: string }> {
-        // Validação de segurança
-        if (!this.validatePhoneNumber(phoneNumber)) {
-            this.logger.error(`Número de telefone inválido: ${phoneNumber}`);
-            return { success: false, error: 'Número de telefone inválido' };
-        }
-
-        // Verifica rate limit
-        const canSend = await this.rateLimiter.checkRateLimit(params.sellerId);
-        if (!canSend) {
-            this.logger.warn(`Rate limit excedido para o vendedor ${params.sellerId}`);
-            return { success: false, error: 'Limite de mensagens excedido' };
-        }
-
-        // Valida e sanitiza parâmetros
-        const validationResult = this.validationService.validateContractNotificationParams({
-            razaoSocial: params.razaoSocial,
-            contractUrl: params.contractUrl,
-        });
-
-        if (!validationResult.isValid) {
-            this.logger.error('Parâmetros da notificação inválidos:', validationResult.error);
-            return { success: false, error: validationResult.error };
-        }
-
+    ): Promise<{ success: boolean; messageId?: string | null; error?: string }> {
         try {
-            const message = this.getCachedMessage(phoneNumber, {
-                ...validationResult.params,
-                sellerId: params.sellerId,
-                notificationAttempts: params.notificationAttempts,
-            });
-            return await this.retryWithBackoff(
-                () => this.sendMessage(phoneNumber, message),
-                this.MAX_RETRIES,
-                this.INITIAL_DELAY,
-            );
-        } catch (error) {
-            this.logger.error('Erro ao enviar notificação:', error);
-            return { success: false, error: error.message };
-        }
-    }
+            this.logger.debug(`[sendContractNotification] Iniciando envio para ${phoneNumber}`);
 
-    async sendMessage(
-        phoneNumber: string,
-        message: string,
-    ): Promise<{ success: boolean; messageId?: string }> {
-        try {
+            // Valida os parâmetros
+            const validation = this.validationService.validateContractNotificationParams(params);
+            if (!validation.isValid || !params.contractUrl) {
+                throw new Error(
+                    `Parâmetros inválidos para notificação de contrato: ${validation.error || 'URL do contrato ausente'}`,
+                );
+            }
+
+            // Rate Limit
+            const canSend = await this.rateLimiter.checkRateLimit(params.sellerId);
+            if (!canSend) {
+                throw new Error('Rate limit exceeded');
+            }
+
             const formattedPhone = this.formatPhoneNumber(phoneNumber);
-            this.logger.debug(`Enviando mensagem para ${formattedPhone}`);
+            const contractUrl = params.contractUrl;
 
-            const response = await axios.post<ZApiResponse>(
-                `${this.baseUrl}/instances/${this.instanceId}/token/${this.clientToken}/send-text`,
-                {
-                    phone: formattedPhone,
-                    message: message,
-                },
-                {
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                },
-            );
+            // Monta a mensagem
+            const messageText = `Olá ${params.razaoSocial},\n\nSeu contrato está pronto para assinatura.\nAcesse: ${contractUrl}`;
 
-            this.logger.debug(`Resposta da API: ${JSON.stringify(response.data)}`);
+            // Payload para o Z-API
+            const linkPayload = {
+                phone: formattedPhone,
+                message: messageText,
+                image: 'https://via.placeholder.com/150/0000FF/808080?text=Contrato',
+                linkUrl: contractUrl,
+                title: 'Contrato Eletrônico',
+                linkDescription: `Contrato para ${params.razaoSocial}`,
+            };
 
-            if (response.data?.messageId) {
-                this.logger.log(`Mensagem enviada com sucesso. ID: ${response.data.messageId}`);
-                return { success: true, messageId: response.data.messageId };
+            const endpoint = '/send-link';
+            const response = await this.sendToZApi(endpoint, linkPayload);
+
+            this.logger.debug(`[sendContractNotification] Resposta da API (${endpoint}):
+                Status: ${response.status}
+                Data: ${JSON.stringify(response.data, null, 2)}
+            `);
+
+            if (!response.data) {
+                throw new Error('Resposta inválida da API Z-API');
             }
 
-            this.logger.error('Resposta da API não contém messageId');
-            return { success: false };
+            const messageId = response.data?.id || response.data?.zaapId || null;
+            if (!messageId) {
+                throw new Error('API Z-API não retornou ID da mensagem');
+            }
+
+            return { success: true, messageId };
         } catch (error) {
-            if (error instanceof AxiosError) {
-                this.handleApiError(error);
-            } else {
-                this.logger.error(`Erro ao enviar mensagem: ${error.message}`);
-            }
-            return { success: false };
+            this.logger.error(
+                `[sendContractNotification] Erro ao enviar notificação para ${phoneNumber}: ${error.message}`,
+                error.stack,
+            );
+            throw error; // Propaga o erro para ser tratado pelo NotificationProcessor
         }
     }
 
+    /**
+     * Método centralizado para enviar requisições à Z-API
+     * @param endpoint Ex: '/send-text' ou '/send-link'
+     * @param body Objeto do corpo da requisição
+     */
+    private async sendToZApi(endpoint: string, payload: any) {
+        try {
+            const url = `${this.instanceApi}${endpoint}`;
+
+            this.logger.debug(`Enviando requisição para Z-API:
+                URL: ${url}
+                Method: POST
+                Headers: { 'Client-Token': '***', 'Content-Type': 'application/json' }
+                Body: ${JSON.stringify(payload, null, 2)}
+            `);
+
+            const response = await axios.post(url, payload, {
+                headers: {
+                    'Client-Token': this.clientToken,
+                    'Content-Type': 'application/json',
+                },
+                timeout: 15000,
+                validateStatus: (status) => status >= 200 && status < 300,
+            });
+
+            this.logger.debug(`Resposta da Z-API:
+                Status: ${response.status}
+                Data: ${JSON.stringify(response.data, null, 2)}
+            `);
+
+            return response;
+        } catch (error) {
+            this.handleApiError('sendToZApi', error);
+            throw error;
+        }
+    }
+
+    /**
+     * Método centralizado para tratar e logar erros da API
+     */
+    private handleApiError(context: string, error: any) {
+        if (error.response) {
+            this.logger.error(`${context} - Erro na API:
+                Status: ${error.response.status}
+                Data: ${JSON.stringify(error.response.data, null, 2)}
+                Headers: ${JSON.stringify(error.response.headers, null, 2)}
+            `);
+        } else if (error.request) {
+            this.logger.error(`${context} - Erro na Requisição (sem resposta):
+                URL: ${error.config?.url}
+                Method: ${error.config?.method}
+                Headers: ${JSON.stringify(error.config?.headers, null, 2)}
+                Data: ${JSON.stringify(error.config?.data, null, 2)}
+            `);
+        } else {
+            this.logger.error(`${context} - Erro Geral: ${error.message}`, error.stack);
+        }
+    }
+
+    /**
+     * Verifica o status de uma mensagem enviada
+     * @param messageId ID da mensagem a ser verificada
+     * @returns Status da mensagem e detalhes adicionais
+     */
     async checkMessageStatus(messageId: string): Promise<{
         status: string;
         details?: any;
     }> {
+        const endpoint = `/message-status/${messageId}`;
         try {
-            const response = await axios.get(
-                `${this.baseUrl}/instances/${this.instanceId}/token/${this.clientToken}/message-status/${messageId}`,
-                {
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
+            const url = `${this.instanceApi}${endpoint}`;
+            this.logger.debug(`[checkMessageStatus] Verificando status:
+                URL: ${url}
+                MessageId: ${messageId}
+            `);
+            const response = await axios.get(url, {
+                headers: {
+                    'Client-Token': this.configService.get<string>('ZAPI_CLIENT_TOKEN'),
                 },
-            );
+                timeout: 10000,
+            });
 
-            this.logger.debug(`Status da mensagem: ${JSON.stringify(response.data)}`);
+            this.logger.debug(`[checkMessageStatus] Resposta do status:
+                Status: ${response.status}
+                Data: ${JSON.stringify(response.data, null, 2)}
+            `);
             return { status: response.data?.status || 'UNKNOWN', details: response.data };
         } catch (error) {
-            if (error instanceof AxiosError) {
-                this.handleApiError(error);
-            } else {
-                this.logger.error(`Erro ao verificar status: ${error.message}`);
-            }
+            this.handleApiError(
+                `[checkMessageStatus] Erro ao verificar status para ${messageId}`,
+                error,
+            );
             return { status: 'ERROR' };
         }
     }
 
-    private formatContractMessage(params: ContractNotificationParams): string {
-        return `Olá *${params.razaoSocial}* 👋
-
-Somos da *True Source* e precisamos da sua atenção para uma atualização importante em nossa política de preço mínimo autorizado.
-
-📄 *Contrato para Assinatura*
-${params.contractUrl}
-
-⏰ *Prazo para Assinatura:* 15 dias
-
-Além disso, precisamos que você nos informe onde vende nossos produtos. Por favor, preencha o formulário abaixo:
-🔗 https://forms.gle/A7y4JjwpA71tjoko7
-
-Em caso de dúvidas, estamos à disposição para ajudar! 🙏
-
-Agradecemos sua parceria! 🤝
-
-Atenciosamente,
-Equipe True Source`;
-    }
-
+    /**
+     * Formata o número de telefone para o padrão internacional
+     * @param phone Número de telefone a ser formatado
+     * @returns Número formatado com código do país
+     */
     private formatPhoneNumber(phone: string): string {
         const numbers = phone.replace(/\D/g, '');
+        if (numbers.startsWith('55')) {
+            return numbers;
+        }
         if (numbers.length === 11) {
             return `55${numbers}`;
         }
-        return numbers;
-    }
-
-    private validatePhoneNumber(phone: string): boolean {
-        const numbers = phone.replace(/\D/g, '');
-        return numbers.length >= 10 && numbers.length <= 11;
-    }
-
-    private async retryWithBackoff<T>(
-        operation: () => Promise<T>,
-        maxRetries: number = this.MAX_RETRIES,
-        initialDelay: number = this.INITIAL_DELAY,
-    ): Promise<T> {
-        let lastError: Error;
-        for (let i = 0; i < maxRetries; i++) {
-            try {
-                return await operation();
-            } catch (error) {
-                lastError = error;
-                const delay = initialDelay * Math.pow(2, i);
-                this.logger.warn(
-                    `Tentativa ${i + 1} falhou. Aguardando ${delay}ms antes da próxima tentativa.`,
-                );
-                await new Promise((resolve) => setTimeout(resolve, delay));
-            }
-        }
-        throw lastError;
-    }
-
-    private handleApiError(error: AxiosError): void {
-        if (error.response) {
-            switch (error.response.status) {
-                case 401:
-                    this.logger.error('Erro de autenticação com a API do Z-API');
-                    break;
-                case 403:
-                    this.logger.error('Acesso negado à API do Z-API');
-                    break;
-                case 404:
-                    this.logger.error('Recurso não encontrado na API do Z-API');
-                    break;
-                case 429:
-                    this.logger.error('Rate limit excedido na API do Z-API');
-                    break;
-                case 500:
-                    this.logger.error('Erro interno do servidor Z-API');
-                    break;
-                default:
-                    this.logger.error(
-                        `Erro na API do Z-API: ${error.response.status} - ${error.response.data}`,
-                    );
-            }
-        } else if (error.request) {
-            this.logger.error('Nenhuma resposta recebida da API do Z-API');
-        } else {
-            this.logger.error(`Erro ao fazer requisição para Z-API: ${error.message}`);
-        }
-    }
-
-    private readonly messageCache = new Map<string, string>();
-
-    private getCachedMessage(phoneNumber: string, params: ContractNotificationParams): string {
-        const cacheKey = `${phoneNumber}:${params.sellerId}`;
-        const cachedMessage = this.messageCache.get(cacheKey);
-
-        if (cachedMessage) {
-            return cachedMessage;
-        }
-
-        const message = `Olá ${params.razaoSocial}!
-
-Você tem um contrato pendente de assinatura.
-${params.contractUrl}
-
-${params.notificationAttempts > 1 ? `Esta é a ${params.notificationAttempts}ª tentativa de contato.` : ''}
-
-Por favor, assine o contrato o mais breve possível.
-Em caso de dúvidas, entre em contato com nosso suporte.`;
-
-        this.messageCache.set(cacheKey, message);
-        return message;
+        throw new Error(`Número de telefone inválido: ${phone}. Formato esperado: DDD + 9 dígitos`);
     }
 }
