@@ -10,11 +10,14 @@ import { NotificationProcessor } from './processors/notification.processor';
 import { RedisModule } from '../../integration/redis/redis.module';
 import { NotificationQueueService } from './services/notification-queue.service';
 import { NotificationMapper } from './mappers/notification.mapper';
-import { WhatsAppService } from '../../integration/services/whatsapp.service';
+import { WhatsAppService } from '../../integration/whatsapp/services/whatsapp.service';
+import { RateLimiterModule } from '../../../shared/modules/rate-limiter.module';
+import { ValidationModule } from '../../../shared/modules/validation.module';
 
+// Fornecendo o serviço diretamente
 const messagingServiceProvider = {
     provide: 'MESSAGING_SERVICE',
-    useExisting: WhatsAppService,
+    useClass: WhatsAppService,
 };
 
 @Module({
@@ -24,17 +27,19 @@ const messagingServiceProvider = {
             defaultJobOptions: {
                 attempts: 5,
                 backoff: {
-                    type: 'exponential',
-                    delay: 5000,
+                    type: 'fixed',
+                    delay: 60000,
                 },
                 removeOnComplete: true,
-                removeOnFail: false,
+                removeOnFail: true,
             },
         }),
         IntegrationModule,
         PrismaModule,
         SecurityModule,
         RedisModule,
+        RateLimiterModule,
+        ValidationModule,
     ],
     controllers: [NotificationController],
     providers: [

@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { NotificationService } from '../../notification/services/notification.service';
-import { WhatsAppService } from '../../../integration/services/whatsapp.service';
+import { WhatsAppService } from '../../../integration/whatsapp/services/whatsapp.service';
 import { ENotificationStatus } from '../../notification/enums/notification-status.enum';
 import { UpdateNotificationDto } from '../../notification/dtos/update-notification.dto';
 import {

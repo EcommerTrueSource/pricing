@@ -28,37 +28,53 @@ export class NotificationService implements INotificationService {
     ) {}
 
     async create(createNotificationDto: CreateNotificationDto): Promise<NotificationResponseDto> {
+        // Log detalhado do DTO recebido
+        this.logger.log(
+            `[create] NotificationService.create chamado com DTO: ${JSON.stringify(
+                {
+                    ...createNotificationDto,
+                    content: createNotificationDto.content
+                        ? createNotificationDto.content.substring(0, 100) + '...'
+                        : 'N/A',
+                },
+                null,
+                2,
+            )}`,
+        );
         this.logger.log(
             `Criando nova notificação para o contrato ${createNotificationDto.contractId}`,
         );
 
-        // Obtém os dados do vendedor e do contrato
+        // Buscar dados completos necessários para envio e fallback
         const seller = await this.prisma.sellers.findUnique({
             where: { id: createNotificationDto.sellerId },
-            select: { razao_social: true, telefone: true },
+            select: { id: true, razao_social: true, telefone: true },
         });
-
-        const contract = await this.prisma.contracts.findUnique({
-            where: { id: createNotificationDto.contractId },
-            select: { signing_url: true },
-        });
-
         if (!seller) {
             throw new Error(`Vendedor não encontrado: ${createNotificationDto.sellerId}`);
         }
-
+        const contract = await this.prisma.contracts.findUnique({
+            where: { id: createNotificationDto.contractId },
+            select: { id: true, signing_url: true }, // Precisa da signing_url para o fallback
+        });
         if (!contract) {
             throw new Error(`Contrato não encontrado: ${createNotificationDto.contractId}`);
         }
-
-        if (!contract.signing_url) {
+        if (!contract.signing_url && !createNotificationDto.content) {
             throw new Error(
-                `URL de assinatura não encontrada para o contrato: ${createNotificationDto.contractId}`,
+                `URL de assinatura não encontrada e conteúdo não fornecido para contrato ${createNotificationDto.contractId}`,
             );
         }
 
-        // Gera o conteúdo da notificação
-        const content = `Olá ${seller.razao_social},\n\nSeu contrato está pronto para assinatura.\nAcesse: ${contract.signing_url}`;
+        const content =
+            createNotificationDto.content ||
+            `Olá ${seller.razao_social},\n\nSeu contrato está pronto para assinatura.\nAcesse: ${contract.signing_url}`;
+
+        if (!createNotificationDto.content) {
+            this.logger.warn(
+                `[create] CONTEÚDO AUSENTE no DTO para contrato ${createNotificationDto.contractId}! Usando fallback.`,
+            );
+        }
 
         const notification = await this.prisma.notifications.create({
             data: {
@@ -70,14 +86,109 @@ export class NotificationService implements INotificationService {
                 status: notification_status.PENDING,
                 attempt_number: 1,
             },
+            include: { sellers: true, contracts: true },
         });
 
-        await this.notificationQueue.add('send-notification', {
-            notificationId: notification.id,
-            attemptNumber: 1,
-        });
+        this.logger.log(
+            `[create] Notificação ${notification.id} criada com status PENDING. Tentando envio imediato...`,
+        );
 
-        return this.notificationMapper.toResponseDto(notification);
+        let notificationToSend = notification;
+        let sentImmediately = false;
+        let immediateSendError: Error | null = null;
+
+        try {
+            this.logger.log(`[create] Preparando envio imediato para Notif ID: ${notification.id}`);
+            const result = await this.messagingService.sendContractNotification(seller.telefone, {
+                razaoSocial: seller.razao_social,
+                contractUrl: contract.signing_url || '',
+                sellerId: seller.id,
+                notificationAttempts: 1,
+                messageContent: content,
+            });
+
+            if (result.success) {
+                this.logger.log(
+                    `[create] ✅ Envio imediato SUCESSO para Notif ID: ${notification.id}. Msg ID: ${result.messageId}`,
+                );
+                notificationToSend = await this.prisma.notifications.update({
+                    where: { id: notification.id },
+                    data: {
+                        status: notification_status.SENT,
+                        sent_at: new Date(),
+                        external_id: result.messageId || null,
+                        attempt_number: 1,
+                    },
+                    include: { sellers: true, contracts: true },
+                });
+                sentImmediately = true;
+            } else {
+                immediateSendError = new Error(
+                    result.error || 'Falha reportada pelo messagingService',
+                );
+                this.logger.warn(
+                    `[create] ⚠️ Envio imediato FALHOU (reportado pelo serviço) para Notif ID: ${notification.id}. Erro: ${immediateSendError.message}`,
+                );
+            }
+        } catch (error) {
+            immediateSendError = error;
+            this.logger.error(
+                `[create] ❌ Erro CATASTRÓFICO no envio imediato para Notif ID: ${notification.id}: ${error.message}`,
+                error.stack,
+            );
+        }
+
+        if (!sentImmediately) {
+            this.logger.log(
+                `[create] Envio imediato falhou ou não ocorreu para ${notification.id}. Enfileirando...`,
+            );
+            try {
+                await this.enqueueNotification(notification.id);
+                this.logger.log(
+                    `[create] Notificação ${notification.id} enfileirada com sucesso após falha no envio imediato.`,
+                );
+            } catch (enqueueError) {
+                this.logger.error(
+                    `[create] FALHA AO ENFILEIRAR PÓS-FALHA notificação ${notification.id}: ${enqueueError.message}`,
+                    enqueueError.stack,
+                );
+                notificationToSend = await this.prisma.notifications.update({
+                    where: { id: notification.id },
+                    data: { status: notification_status.FAILED },
+                    include: { sellers: true, contracts: true },
+                });
+            }
+        }
+
+        return this.notificationMapper.toResponseDto(notificationToSend);
+    }
+
+    /**
+     * Método auxiliar para adicionar uma notificação à fila Bull
+     * @param notificationId ID da notificação a ser enfileirada
+     * @private
+     */
+    private async enqueueNotification(notificationId: string): Promise<void> {
+        try {
+            this.logger.log(`Adicionando notificação ${notificationId} à fila Bull...`);
+
+            // Verificando se a fila está pronta
+            await this.notificationQueue.isReady();
+
+            // Adiciona o job à fila
+            await this.notificationQueue.add('send-notification', {
+                notificationId: notificationId,
+                attemptNumber: 1,
+            });
+
+            this.logger.log(`✅ Notificação ${notificationId} adicionada à fila com sucesso`);
+        } catch (queueError) {
+            this.logger.error(
+                `❌ Falha ao adicionar notificação ${notificationId} à fila: ${queueError.message}`,
+                queueError.stack,
+            );
+            // Falha silenciosa - a notificação continua como PENDING e pode ser processada manualmente
+        }
     }
 
     async update(id: string, updateDto: UpdateNotificationDto): Promise<NotificationResponseDto> {
@@ -241,10 +352,14 @@ export class NotificationService implements INotificationService {
         });
     }
 
-    async markAsSent(id: string): Promise<NotificationResponseDto> {
+    async markAsSent(id: string, externalId?: string | null): Promise<NotificationResponseDto> {
         const notification = await this.prisma.notifications.update({
             where: { id },
-            data: { status: notification_status.SENT },
+            data: {
+                status: notification_status.SENT,
+                sent_at: new Date(),
+                external_id: externalId,
+            },
             include: { sellers: true, contracts: true },
         });
         return this.notificationMapper.toResponseDto(notification);
@@ -322,6 +437,18 @@ export class NotificationService implements INotificationService {
                 this.logger.debug(
                     `[sendWhatsAppNotification] Enviando notificação via WhatsApp para ${seller.telefone}`,
                 );
+
+                // Verificação adicional do conteúdo da mensagem
+                this.logger.log(
+                    `[sendWhatsAppNotification] INSPEÇÃO DETALHADA DA MENSAGEM:
+                    ID da notificação: ${notification.id}
+                    Conteúdo original: "${notification.content}"
+                    Tamanho: ${notification.content ? notification.content.length : 0} caracteres
+                    Tipo: ${notification.type}
+                    Tentativa: ${notification.attempt_number}
+                    `,
+                );
+
                 const result = await (this.messagingService as any).sendContractNotification(
                     seller.telefone,
                     {
@@ -329,6 +456,7 @@ export class NotificationService implements INotificationService {
                         contractUrl: contract.signing_url,
                         sellerId: seller.id,
                         notificationAttempts: notification.attempt_number,
+                        messageContent: notification.content,
                     },
                 );
 

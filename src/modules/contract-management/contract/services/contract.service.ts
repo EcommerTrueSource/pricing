@@ -14,6 +14,8 @@ import { AutentiqueDocumentStatus } from '../../../integration/autentique/interf
 import { contract_status, status_change_reason } from '@prisma/client';
 import { NotificationService } from '../../notification/services/notification.service';
 import { SellerResponseDto } from '../../seller/dtos/seller-response.dto';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import { ContractSentToSignatureEvent } from '../../events/contract.events';
 
 @Injectable()
 export class ContractService implements IContractService {
@@ -25,12 +27,14 @@ export class ContractService implements IContractService {
         private readonly contractTemplateService: ContractTemplateService,
         private readonly autentiqueService: AutentiqueService,
         private readonly notificationService: NotificationService,
+        private readonly eventEmitter: EventEmitter2,
     ) {}
 
     async create(
         createContractDto: CreateContractDto,
         contractData: ContractDataDto,
     ): Promise<ContractResponseDto> {
+        this.logger.log(`[create] Criando contrato para o vendedor ${createContractDto.sellerId}`);
         await this.sellerService.findOne(createContractDto.sellerId);
 
         const templateData = {
@@ -58,6 +62,7 @@ export class ContractService implements IContractService {
                 expires_at: createContractDto.expiresAt,
             },
         });
+
         return this.mapToResponseDto(contract);
     }
 
@@ -115,27 +120,91 @@ export class ContractService implements IContractService {
         changeReason: EStatusChangeReason,
         metadata?: Record<string, any>,
     ): Promise<ContractResponseDto> {
-        const contract = await this.findOne(id);
+        // Verificar se contrato existe antes de mais nada
+        const contractExists = await this.prisma.contracts.findUnique({
+            where: { id },
+            select: { status: true }, // Seleciona apenas o status para eficiência
+        });
+        if (!contractExists) {
+            throw new NotFoundException(
+                `Contrato com ID ${id} não encontrado para atualização de status`,
+            );
+        }
 
+        // 1. Cria o histórico primeiro
         await this.prisma.status_history.create({
             data: {
                 contract_id: id,
-                from_status: contract.status,
+                from_status: contractExists.status, // Usa o status atual lido
                 to_status: status,
-                reason: changeReason as any,
+                reason: changeReason as status_change_reason, // Cast para o tipo do Prisma
                 metadata: metadata || {},
+                changed_at: new Date(), // Registrar o momento da mudança
             },
         });
 
-        const updatedContract = await this.prisma.contracts.update({
+        const dataToUpdate: any = {
+            status,
+            ...(metadata?.external_id && { external_id: metadata.external_id }),
+            ...(metadata?.signing_url && { signing_url: metadata.signing_url }),
+            updated_at: new Date(),
+        };
+
+        // 2. Atualiza o contrato
+        await this.prisma.contracts.update({
             where: { id },
-            data: {
-                status,
-                external_id: metadata?.external_id || contract.externalId,
-                signing_url: metadata?.signing_url || contract.signingUrl,
+            data: dataToUpdate,
+        });
+
+        // 3. Re-busca o contrato completo para garantir todos os dados para o DTO
+        const updatedContractFull = await this.prisma.contracts.findUnique({
+            where: { id },
+            include: {
+                sellers: true,
+                templates: true,
             },
         });
-        return this.mapToResponseDto(updatedContract);
+
+        if (!updatedContractFull) {
+            this.logger.error(
+                `[updateStatus] Contrato ${id} não encontrado após atualização bem-sucedida.`,
+            );
+            throw new NotFoundException(`Contrato com ID ${id} desapareceu após atualização`);
+        }
+
+        this.logger.log(`[updateStatus] Status do contrato ${id} atualizado para ${status}`);
+
+        // Emitir novo evento APÓS salvar a URL e status
+        if (
+            status === EContractStatus.PENDING_SIGNATURE &&
+            changeReason === EStatusChangeReason.SENT_TO_SIGNATURE &&
+            updatedContractFull.signing_url
+        ) {
+            this.logger.log(
+                `[updateStatus] Emitindo evento ASYNC contract.sent_to_signature para contrato ${id}`,
+            );
+            try {
+                await this.eventEmitter.emitAsync(
+                    'contract.sent_to_signature',
+                    new ContractSentToSignatureEvent(
+                        updatedContractFull.id,
+                        updatedContractFull.seller_id,
+                        updatedContractFull.signing_url,
+                        new Date(),
+                    ),
+                );
+                this.logger.log(
+                    `[updateStatus] Evento ASYNC contract.sent_to_signature processado para contrato ${id}`,
+                );
+            } catch (eventError) {
+                this.logger.error(
+                    `[updateStatus] Erro ao processar evento ASYNC contract.sent_to_signature para ${id}: ${eventError.message}`,
+                    eventError.stack,
+                );
+            }
+        }
+
+        return this.mapToResponseDto(updatedContractFull);
     }
 
     async findBySeller(sellerId: string): Promise<ContractResponseDto[]> {
@@ -358,6 +427,35 @@ export class ContractService implements IContractService {
     }
 
     private mapToResponseDto(contract: any): ContractResponseDto {
+        const sellerDto = contract.sellers
+            ? {
+                  id: contract.sellers.id,
+                  cnpj: contract.sellers.cnpj,
+                  razaoSocial: contract.sellers.razao_social,
+                  email: contract.sellers.email,
+                  telefone: contract.sellers.telefone,
+                  endereco: contract.sellers.endereco,
+                  createdAt: contract.sellers.created_at,
+                  updatedAt: contract.sellers.updated_at,
+              }
+            : undefined;
+
+        const templateDto = contract.templates
+            ? {
+                  id: contract.templates.id,
+                  name: contract.templates.name,
+                  content: contract.templates.content,
+                  version: contract.templates.version,
+                  isActive: contract.templates.is_active,
+                  createdAt: contract.templates.created_at,
+                  updatedAt: contract.templates.updated_at,
+              }
+            : undefined;
+
+        this.logger.debug(
+            `[mapToResponseDto] Mapeando contrato ID: ${contract.id}, Seller ID: ${contract.seller_id}`,
+        );
+
         return {
             id: contract.id,
             sellerId: contract.seller_id,
@@ -374,29 +472,8 @@ export class ContractService implements IContractService {
             updatedAt: contract.updated_at,
             contractsDeleted: 0,
             hasMultipleContracts: false,
-            seller: contract.sellers
-                ? {
-                      id: contract.sellers.id,
-                      cnpj: contract.sellers.cnpj,
-                      razaoSocial: contract.sellers.razao_social,
-                      email: contract.sellers.email,
-                      telefone: contract.sellers.telefone,
-                      endereco: contract.sellers.endereco,
-                      createdAt: contract.sellers.created_at,
-                      updatedAt: contract.sellers.updated_at,
-                  }
-                : undefined,
-            template: contract.templates
-                ? {
-                      id: contract.templates.id,
-                      name: contract.templates.name,
-                      content: contract.templates.content,
-                      version: contract.templates.version,
-                      isActive: contract.templates.is_active,
-                      createdAt: contract.templates.created_at,
-                      updatedAt: contract.templates.updated_at,
-                  }
-                : undefined,
+            seller: sellerDto,
+            template: templateDto,
         };
     }
 

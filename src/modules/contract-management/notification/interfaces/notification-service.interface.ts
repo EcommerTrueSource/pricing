@@ -1,8 +1,10 @@
 import { Notification } from '../entities/notification.entity';
 import { UpdateNotificationDto } from '../dtos/update-notification.dto';
 import { NotificationResponseDto } from '../dtos/notification-response.dto';
+import { CreateNotificationDto } from '../dtos/create-notification.dto';
 
 export interface INotificationService {
+    create(createNotificationDto: CreateNotificationDto): Promise<NotificationResponseDto>;
     findOne(id: string): Promise<Notification>;
     findAll(): Promise<NotificationResponseDto[]>;
     findByContractId(contractId: string): Promise<NotificationResponseDto[]>;

@@ -31,11 +31,29 @@ export class ContractCancelledEvent {
     ) {}
 }
 
+export class ContractSentToSignatureEvent {
+    constructor(
+        public readonly contractId: string,
+        public readonly sellerId: string,
+        public readonly signingUrl: string,
+        public readonly sentAt: Date,
+    ) {}
+}
+
+/**
+ * Evento disparado quando um contrato precisa de um lembrete de assinatura
+ * - A primeira notificação é enviada na criação do contrato
+ * - A segunda notificação é enviada 3 dias após a criação do contrato
+ * - A terceira notificação é enviada 7 dias após a criação do contrato
+ * - Notificações são enviadas apenas em dias úteis, às 12h00
+ */
 export class ContractReminderEvent {
     constructor(
         public readonly contractId: string,
         public readonly sellerId: string,
-        public readonly reminderType: string,
-        public readonly reminderDate: Date,
+        public readonly reason: string,
+        public readonly timestamp: Date,
+        public readonly tentativaAtual: number,
+        public readonly maximoTentativas: number,
     ) {}
 }

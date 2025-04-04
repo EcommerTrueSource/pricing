@@ -4,6 +4,9 @@ import { ConfigService } from '@nestjs/config';
 interface ContractNotificationParams {
     razaoSocial: string;
     contractUrl: string;
+    sellerId?: string;
+    notificationAttempts?: number;
+    messageContent?: string;
 }
 
 interface ValidationResult {
@@ -127,11 +130,15 @@ export class ValidationService {
             };
         }
 
+        // Preserva todos os campos no retorno
         return {
             isValid: true,
             params: {
                 razaoSocial: params.razaoSocial.trim(),
                 contractUrl: params.contractUrl.trim(),
+                sellerId: params.sellerId,
+                notificationAttempts: params.notificationAttempts,
+                messageContent: params.messageContent,
             },
         };
     }

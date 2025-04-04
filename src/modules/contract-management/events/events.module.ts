@@ -1,18 +1,13 @@
 import { Module } from '@nestjs/common';
 import { EventEmitterModule } from '@nestjs/event-emitter';
-import { ContractService } from '../contract/services/contract.service';
-import { NotificationService } from '../notification/services/notification.service';
 import { ContractEventHandler } from './handlers/contract-event.handler';
 import { NotificationEventHandler } from './handlers/notification-event.handler';
+import { IntegrationModule } from '../../integration/integration.module';
+import { ContractModule } from '../contract/contract.module';
+import { NotificationModule } from '../notification/notification.module';
 
 @Module({
-    imports: [EventEmitterModule.forRoot()],
-    providers: [
-        ContractEventHandler,
-        NotificationEventHandler,
-        ContractService,
-        NotificationService,
-    ],
-    exports: [EventEmitterModule],
+    imports: [EventEmitterModule, IntegrationModule, ContractModule, NotificationModule],
+    providers: [ContractEventHandler, NotificationEventHandler],
 })
 export class EventsModule {}

@@ -1,15 +1,14 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { PrismaService } from '../../../../shared/services/prisma.service';
 import { BrasilApiService } from '../../../integration/brasil-api/services/brasil-api.service';
 import { ContractService } from '../../contract/services/contract.service';
 import { ContractTemplateService } from '../../template/services/contract-template.service';
-import { GoogleDocsService } from '../../template/services/google-docs.service';
-import { WebhookDto } from '../dtos/webhook.dto';
 import { EContractStatus } from '../../contract/enums/contract-status.enum';
 import { EStatusChangeReason } from '../../contract/enums/status-change-reason.enum';
 import { NotificationService } from '../../notification/services/notification.service';
-import { ENotificationType } from '../../notification/enums/notification-type.enum';
-import { ENotificationChannel } from '../../notification/enums/notification-channel.enum';
+import { WebhookDto } from '../dtos/webhook.dto';
+import { GoogleDocsService } from '../../template/services/google-docs.service';
+import { PrismaService } from '../../../../shared/services/prisma.service';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 
 @Injectable()
 export class WebhookService {
@@ -22,6 +21,7 @@ export class WebhookService {
         private readonly contractTemplateService: ContractTemplateService,
         private readonly googleDocsService: GoogleDocsService,
         private readonly notificationService: NotificationService,
+        private readonly eventEmitter: EventEmitter2,
     ) {}
 
     async processContractWebhook(data: WebhookDto) {
@@ -233,16 +233,22 @@ export class WebhookService {
             );
             this.logger.log('✅ Status do contrato atualizado');
 
-            // 10. Cria notificação inicial
-            await this.notificationService.create({
-                contractId: contract.id,
-                sellerId,
-                type: ENotificationType.SIGNATURE_REMINDER,
-                channel: ENotificationChannel.WHATSAPP,
-                content: `Por favor, assine o contrato. Link de assinatura: ${signedContract.signingUrl}`,
-                attemptNumber: 1,
+            // A notificação será criada pelo ContractEventHandler ao receber o evento contract.created
+            // que foi emitido dentro de ContractService.create.
+            // Remover a emissão duplicada daqui.
+            /*
+            this.logger.log('📣 Emitindo evento contract.created para o contrato:', {
+                contractId: signedContract.id,
+                sellerId: signedContract.sellerId,
             });
-            this.logger.log('✅ Notificação inicial criada');
+
+            this.eventEmitter.emit(
+                'contract.created',
+                new ContractCreatedEvent(signedContract.id, signedContract.sellerId, new Date()),
+            );
+
+            this.logger.log('✅ Evento contract.created emitido com sucesso');
+            */
 
             return {
                 success: true,

@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { WhatsAppService } from '../src/modules/integration/services/whatsapp.service';
+import { WhatsAppService } from '../src/modules/integration/whatsapp/services/whatsapp.service';
 import { RateLimiterService } from '../src/shared/services/rate-limiter.service';
 import { ValidationService } from '../src/shared/services/validation.service';
 import { Notification } from '../src/modules/contract-management/notification/entities/notification.entity';

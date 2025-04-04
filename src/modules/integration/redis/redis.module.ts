@@ -26,8 +26,6 @@ import { Logger } from '@nestjs/common';
                             rejectUnauthorized: false,
                         },
                         connectTimeout: 10000,
-                        enableReadyCheck: true,
-                        autoResendUnfulfilledCommands: true,
                         lazyConnect: true,
                     },
                 };

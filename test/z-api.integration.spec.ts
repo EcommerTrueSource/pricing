@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { WhatsAppService } from '../src/modules/integration/services/whatsapp.service';
+import { WhatsAppService } from '../src/modules/integration/whatsapp/services/whatsapp.service';
 import { PrismaService } from '../src/shared/services/prisma.service';
 import { NotificationService } from '../src/modules/contract-management/notification/services/notification.service';
 import { NotificationMapper } from '../src/modules/contract-management/notification/mappers/notification.mapper';

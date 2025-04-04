@@ -11,6 +11,8 @@ import { AutentiqueModule } from '../integration/autentique/autentique.module';
 import { UpdateAllContractsCommand } from './commands/update-all-contracts.command';
 import { BrasilApiModule } from '../integration/brasil-api/brasil-api.module';
 import { WebhookModule } from './webhook/webhook.module';
+import { SchedulerModule } from './scheduler/scheduler.module';
+import { EventsModule } from './events/events.module';
 
 @Module({
     imports: [
@@ -24,6 +26,8 @@ import { WebhookModule } from './webhook/webhook.module';
         AutentiqueModule,
         BrasilApiModule,
         WebhookModule,
+        SchedulerModule,
+        EventsModule,
     ],
     providers: [UpdateSellersCommand, UpdateAllContractsCommand],
     exports: [
@@ -35,6 +39,8 @@ import { WebhookModule } from './webhook/webhook.module';
         AutentiqueModule,
         BrasilApiModule,
         WebhookModule,
+        SchedulerModule,
+        EventsModule,
     ],
 })
 export class ContractManagementModule {}

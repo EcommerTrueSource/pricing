@@ -29,8 +29,6 @@ export class RedisService implements IRedisService {
             },
             maxRetriesPerRequest: 3,
             connectTimeout: 10000,
-            enableReadyCheck: true,
-            autoResendUnfulfilledCommands: true,
             lazyConnect: true,
         });
 
