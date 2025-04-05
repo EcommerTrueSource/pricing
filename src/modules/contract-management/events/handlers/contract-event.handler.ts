@@ -14,6 +14,7 @@ import {
 } from '../contract.events';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { CreateNotificationDto } from '../../notification/dtos/create-notification.dto';
+import { CONTRACT_NOTIFICATION_TEMPLATES } from '../../../integration/whatsapp/templates/contract-notification.templates';
 
 @Injectable()
 export class ContractEventHandler {
@@ -55,33 +56,10 @@ export class ContractEventHandler {
                 `[handleContractSent] Dados recebidos no evento: Contrato ID=${event.contractId}, URL=${event.signingUrl}`,
             );
 
-            const mensagem = `Olá *${seller.razao_social}*! 👋
-
-Esperamos que esteja tudo bem com você.
-
-Somos da *True Source* e gostaríamos de informá-lo(a) sobre uma atualização importante na nossa política de preço mínimo autorizado.
-
-📝 Segue o link do contrato para assinatura: ${event.signingUrl}
-
-⏱️ *Prazo para assinatura:* 15 dias a partir do recebimento desta mensagem.
-
-Além disso, pedimos gentilmente que nos informe:
-• URLs dos sites onde vende nossos produtos
-• Marketplaces onde atua
-• Nome da loja utilizado
-
-🔗 O envio deve ser feito através do formulário:
-https://forms.gle/A7y4JjwpA71tjoko7
-
-Estamos à disposição para esclarecer qualquer dúvida!
-
-Agradecemos sua parceria e atenção! 🙏
-
-Cordialmente,
-*Equipe True Source*`;
-
-            this.logger.log(
-                `[handleContractSent] Mensagem personalizada gerada (tamanho: ${mensagem.length})`,
+            // Usa o template da primeira tentativa
+            const mensagem = CONTRACT_NOTIFICATION_TEMPLATES.FIRST_ATTEMPT(
+                seller.razao_social,
+                event.signingUrl,
             );
 
             this.logger.log(
@@ -164,89 +142,35 @@ Cordialmente,
         const tentativaAtual = event.tentativaAtual || 1;
         const maximoTentativas = event.maximoTentativas || 3;
 
-        // Texto personalizado com base na tentativa atual
-        let mensagem = '';
+        // Valida o número da tentativa
+        if (tentativaAtual < 1 || tentativaAtual > 3) {
+            this.logger.error(
+                `[handleContractReminderEvent] Tentativa inválida: ${tentativaAtual}. Deve ser entre 1 e 3.`,
+            );
+            throw new Error(`Tentativa inválida: ${tentativaAtual}. Deve ser entre 1 e 3.`);
+        }
 
-        if (tentativaAtual === 1) {
-            // Primeira tentativa - Mensagem padrão
-            mensagem = `Olá *${seller.razao_social}*! 👋
-
-Esperamos que esteja tudo bem com você.
-
-Somos da *True Source* e gostaríamos de informá-lo(a) sobre uma atualização importante na nossa política de preço mínimo autorizado.
-
-📝 Segue o link do contrato para assinatura: ${contract.signingUrl}
-
-⏱️ *Prazo para assinatura:* 15 dias a partir do recebimento desta mensagem.
-
-Além disso, pedimos gentilmente que nos informe:
-• URLs dos sites onde vende nossos produtos
-• Marketplaces onde atua
-• Nome da loja utilizado
-
-🔗 O envio deve ser feito através do formulário:
-https://forms.gle/A7y4JjwpA71tjoko7
-
-Estamos à disposição para esclarecer qualquer dúvida!
-
-Agradecemos sua parceria e atenção! 🙏
-
-Cordialmente,
-*Equipe True Source*`;
-        } else if (tentativaAtual === 2) {
-            // Segunda tentativa - Indica que é a 2ª tentativa (3 dias depois)
-            mensagem = `Olá *${seller.razao_social}*! 👋
-
-Esperamos encontrá-lo(a) bem.
-
-📢 Gostaríamos de gentilmente lembrá-lo(a) sobre a *atualização da nossa política de preço mínimo autorizado*.
-
-Notamos que o contrato enviado há 3 dias ainda aguarda sua assinatura:
-🔗 ${contract.signingUrl}
-
-⏱️ *Lembramos que o prazo para assinatura é de 15 dias* a partir do primeiro contato.
-
-Também aguardamos as informações sobre:
-• Sites onde comercializa nossos produtos
-• Marketplaces onde atua
-• Nome da sua loja
-
-📋 Preencha essas informações no formulário:
-https://forms.gle/A7y4JjwpA71tjoko7
-
-Nossa equipe está à disposição para ajudá-lo(a) com o processo de assinatura ou esclarecer dúvidas.
-
-Agradecemos sua atenção e parceria contínua! 🤝
-
-Atenciosamente,
-*Equipe True Source*`;
-        } else {
-            // Terceira tentativa - Enfatiza que é a ÚLTIMA tentativa (7 dias depois)
-            mensagem = `Olá *${seller.razao_social}*! 👋
-
-*⚠️ AVISO IMPORTANTE*
-
-Esperamos que esteja bem. Esta é nossa *terceira e última comunicação* referente à atualização da política de preço mínimo autorizado da True Source.
-
-O contrato enviado há 7 dias ainda aguarda sua assinatura, e o prazo está se esgotando:
-🔗 ${contract.signingUrl}
-
-⏱️ Para mantermos nossa parceria comercial ativa, é *indispensável* a assinatura deste documento dentro do prazo estabelecido de 15 dias.
-
-Lembramos também da importância de nos informar:
-• Sites onde comercializa nossos produtos
-• Marketplaces onde atua
-• Nome da sua loja
-
-📋 Através do formulário:
-https://forms.gle/A7y4JjwpA71tjoko7
-
-Nossa equipe está inteiramente à disposição para auxiliá-lo(a) no processo de assinatura.
-
-Contamos com sua compreensão e resposta para continuarmos com nossa parceria comercial. 🤝
-
-Atenciosamente,
-*Equipe True Source*`;
+        // Usa o template apropriado baseado na tentativa atual
+        let mensagem: string;
+        switch (tentativaAtual) {
+            case 1:
+                mensagem = CONTRACT_NOTIFICATION_TEMPLATES.FIRST_ATTEMPT(
+                    seller.razao_social,
+                    contract.signingUrl,
+                );
+                break;
+            case 2:
+                mensagem = CONTRACT_NOTIFICATION_TEMPLATES.SECOND_ATTEMPT(
+                    seller.razao_social,
+                    contract.signingUrl,
+                );
+                break;
+            case 3:
+                mensagem = CONTRACT_NOTIFICATION_TEMPLATES.THIRD_ATTEMPT(
+                    seller.razao_social,
+                    contract.signingUrl,
+                );
+                break;
         }
 
         this.logger.log(

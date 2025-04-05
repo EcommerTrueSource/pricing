@@ -8,6 +8,7 @@ import {
     ContractNotificationParams,
 } from '../../../contract-management/notification/interfaces/messaging-service.interface';
 import { Notification } from '../../../contract-management/notification/entities/notification.entity';
+import { CONTRACT_NOTIFICATION_TEMPLATES } from '../templates/contract-notification.templates';
 
 /**
  * Serviço responsável por enviar mensagens via WhatsApp
@@ -178,6 +179,75 @@ export class WhatsAppService implements IMessagingService {
                 this.logger.log(
                     `[Z-API] Primeiros 50 caracteres da mensagem personalizada: ${validatedParams.messageContent.substring(0, 50)}...`,
                 );
+            }
+
+            // Determina o template da mensagem baseado no número da tentativa
+            const attemptNumber = params.notificationAttempts || 1;
+            let messageTemplate: string;
+
+            switch (attemptNumber) {
+                case 1:
+                    messageTemplate = CONTRACT_NOTIFICATION_TEMPLATES.FIRST_ATTEMPT(
+                        validatedParams.razaoSocial,
+                        validatedParams.contractUrl,
+                    );
+                    break;
+
+                case 2:
+                    messageTemplate = CONTRACT_NOTIFICATION_TEMPLATES.SECOND_ATTEMPT(
+                        validatedParams.razaoSocial,
+                        validatedParams.contractUrl,
+                    );
+                    break;
+
+                case 3:
+                    messageTemplate = CONTRACT_NOTIFICATION_TEMPLATES.THIRD_ATTEMPT(
+                        validatedParams.razaoSocial,
+                        validatedParams.contractUrl,
+                    );
+                    break;
+
+                default:
+                    throw new Error(`Tentativa inválida: ${attemptNumber}. Deve ser entre 1 e 3.`);
+            }
+
+            // Usa a mensagem personalizada se disponível, caso contrário usa o template
+            const finalMessage = validatedParams.messageContent || messageTemplate;
+
+            // SOLUÇÃO: Abandonamos o endpoint /send-link e usamos SEMPRE /send-text
+            // A API Z-API ignora nossa mensagem personalizada quando usamos /send-link
+            this.logger.log(
+                `[Z-API] Usando endpoint /send-text para preservar formatação personalizada da mensagem`,
+            );
+
+            // Configuração para texto simples
+            const textPayload = {
+                phone: formattedPhone,
+                message: finalMessage, // Mensagem completa (com link incluído)
+            };
+
+            this.logger.debug(
+                `[Z-API] Payload montado para a requisição:
+                    ${JSON.stringify(
+                        {
+                            ...textPayload,
+                            message: textPayload.message.substring(0, 100) + '...', // Truncar para o log
+                        },
+                        null,
+                        2,
+                    )}`,
+            );
+
+            // Enviamos usando o endpoint de texto simples para preservar nossa formatação
+            const response = await this.sendToZApi('/send-text', textPayload);
+
+            this.logger.log(`[Z-API] Resposta recebida - Status: ${response.status}`);
+            this.logger.debug(`[Z-API] Resposta completa: ${JSON.stringify(response.data)}`);
+
+            if (!response.data) {
+                const error = 'Resposta inválida da API Z-API';
+                this.logger.error(`[Z-API] ${error}`);
+                return { success: false, error };
             }
 
             try {

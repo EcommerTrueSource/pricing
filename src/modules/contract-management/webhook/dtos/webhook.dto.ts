@@ -4,11 +4,11 @@ import { IsEmail, IsString, Matches } from 'class-validator';
 export class WebhookDto {
     @ApiProperty({
         description: 'CNPJ do vendedor',
-        example: '12.345.678/0001-90',
+        example: '38308523000172',
     })
     @IsString()
-    @Matches(/^\d{2}\.\d{3}\.\d{3}\/\d{4}\-\d{2}$/, {
-        message: 'CNPJ deve estar no formato XX.XXX.XXX/XXXX-XX',
+    @Matches(/^\d{14}$/, {
+        message: 'CNPJ deve conter apenas números',
     })
     cnpj: string;
 
@@ -21,11 +21,11 @@ export class WebhookDto {
 
     @ApiProperty({
         description: 'Telefone do vendedor',
-        example: '(11) 99999-9999',
+        example: '27992594304',
     })
     @IsString()
-    @Matches(/^\(\d{2}\) \d{4,5}\-\d{4}$/, {
-        message: 'Telefone deve estar no formato (XX) XXXXX-XXXX',
+    @Matches(/^\d{10,11}$/, {
+        message: 'Telefone deve conter apenas números (10 ou 11 dígitos)',
     })
     telefone: string;
 }

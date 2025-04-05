@@ -16,6 +16,7 @@ import { NotificationService } from '../services/notification.service';
 import { IMessagingService } from '../interfaces/messaging-service.interface';
 import { ENotificationStatus } from '../enums/notification-status.enum';
 import { PrismaService } from '../../../../shared/services/prisma.service';
+import { contract_status } from '@prisma/client';
 
 @Injectable()
 @Processor('notifications')
@@ -46,78 +47,78 @@ export class NotificationProcessor implements INotificationProcessor {
             // 1. Buscar a notificação atual do banco
             notification = await this.prisma.notifications.findUnique({
                 where: { id: notificationId },
-                include: { sellers: true, contracts: true }, // Incluir dados necessários para envio
+                include: { sellers: true, contracts: true },
             });
 
             if (!notification) {
                 this.logger.error(
                     `[handleNotification] Notificação ${notificationId} não encontrada no DB. Removendo job ${job.id}.`,
                 );
-                // Se não existe, não há o que fazer, considera o job "concluído" sem erro para não ficar retentando
                 return;
             }
 
-            // 2. VERIFICAR STATUS ATUAL ANTES DE PROCESSAR
-            if (
-                notification.status === ENotificationStatus.SENT ||
-                notification.status === ENotificationStatus.DELIVERED
-            ) {
+            // 2. Verificar se o contrato já foi assinado
+            if (notification.contracts.status === contract_status.SIGNED) {
                 this.logger.log(
-                    `[handleNotification] Notificação ${notificationId} já está ${notification.status}. Job ${job.id} ignorado.`,
+                    `[handleNotification] Contrato ${notification.contract_id} já foi assinado. Cancelando notificação.`,
                 );
-                return; // Já foi enviada/entregue, não faz nada
-            }
-            if (notification.status === ENotificationStatus.FAILED) {
-                this.logger.log(
-                    `[handleNotification] Notificação ${notificationId} já está FAILED permanentemente. Job ${job.id} ignorado.`,
-                );
-                return; // Já falhou permanentemente, não faz nada
+                await this.notificationService.markAsFailed(notification.id);
+                return;
             }
 
-            // Se chegou aqui, está PENDING e precisa ser processada
-            this.logger.log(
-                `[handleNotification] Notificação ${notificationId} está ${notification.status}. Prosseguindo com tentativa de envio.`,
-            );
-
-            // 3. Verificar tentativas
-            const currentAttempt = job.attemptsMade + 1; // attemptsMade é 0-based
-            this.logger.log(
-                `[handleNotification] Tentativa ${currentAttempt}/${this.MAX_ATTEMPTS} para job ${job.id}`,
-            );
-
-            // Atualiza o número de tentativas no banco ANTES de tentar enviar
-            await this.prisma.notifications.update({
-                where: { id: notification.id },
-                data: { attempt_number: currentAttempt },
-            });
-            notification.attempt_number = currentAttempt; // Atualiza objeto em memória
-
-            // 4. Preparar dados e chamar o serviço de mensageria
-            const seller = notification.sellers;
-            const contract = notification.contracts;
-            if (!seller || !contract) {
-                throw new Error('Dados do vendedor ou contrato ausentes na notificação');
-            }
-
-            this.logger.debug(
-                `[handleNotification] Chamando WhatsAppService para notificação ${notification.id}, tentativa ${currentAttempt}`,
-            );
-
-            const result = await this.messagingService.sendContractNotification(seller.telefone, {
-                razaoSocial: seller.razao_social,
-                contractUrl: contract.signing_url || '',
-                sellerId: seller.id,
-                notificationAttempts: currentAttempt,
-                messageContent: notification.content,
+            // 3. Verificar se existem notificações pendentes para o mesmo contrato
+            const pendingNotifications = await this.prisma.notifications.findMany({
+                where: {
+                    contract_id: notification.contract_id,
+                    status: ENotificationStatus.PENDING,
+                    id: { not: notification.id },
+                },
+                orderBy: { created_at: 'asc' },
             });
 
-            // 5. Processar resultado do envio
+            if (pendingNotifications.length > 0) {
+                this.logger.log(
+                    `[handleNotification] Existem ${pendingNotifications.length} notificações pendentes para o contrato ${notification.contract_id}. Adiando processamento.`,
+                );
+                // Adia o processamento desta notificação
+                await this.notificationQueue.add(
+                    'send-notification',
+                    { notificationId: notification.id, attemptNumber: 1 },
+                    { delay: 60000 },
+                );
+                return;
+            }
+
+            // 4. Verificar se a notificação já foi processada
+            if (notification.status !== ENotificationStatus.PENDING) {
+                this.logger.log(
+                    `[handleNotification] Notificação ${notification.id} já foi processada com status ${notification.status}.`,
+                );
+                return;
+            }
+
+            // 5. Processar a notificação
+            const currentAttempt = job.attemptsMade + 1;
+            this.logger.log(
+                `[handleNotification] Processando notificação ${notification.id} (tentativa ${currentAttempt})`,
+            );
+
+            const result = await this.messagingService.sendContractNotification(
+                notification.sellers.telefone,
+                {
+                    razaoSocial: notification.sellers.razao_social,
+                    contractUrl: notification.contracts.signing_url || '',
+                    sellerId: notification.sellers.id,
+                    notificationAttempts: currentAttempt,
+                    messageContent: notification.content,
+                },
+            );
+
             if (result.success) {
                 this.logger.log(
-                    `[handleNotification] ✅ Envio SUCESSO (tentativa ${currentAttempt}) para Notif ID: ${notification.id}. Msg ID: ${result.messageId}`,
+                    `[handleNotification] ✅ Notificação ${notification.id} enviada com sucesso`,
                 );
                 await this.notificationService.markAsSent(notification.id, result.messageId);
-                // Job concluído com sucesso
             } else {
                 // Falha no envio reportada pelo serviço
                 const errorMsg = result.error || 'Falha reportada pelo messagingService';
@@ -130,7 +131,6 @@ export class NotificationProcessor implements INotificationProcessor {
                         `[handleNotification] Notificação ${notification.id} falhou definitivamente após ${currentAttempt} tentativas. Última falha: ${errorMsg}`,
                     );
                     await this.notificationService.markAsFailed(notification.id);
-                    // Job concluído (como falha permanente), não lança erro para não tentar mais
                 } else {
                     // Lança erro para o Bull tentar novamente
                     this.logger.log(

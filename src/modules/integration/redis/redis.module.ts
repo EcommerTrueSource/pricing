@@ -14,6 +14,7 @@ import { Logger } from '@nestjs/common';
 
                 const host = configService.get<string>('REDIS_HOST');
                 const password = configService.get<string>('REDIS_PASSWORD');
+                const isTest = configService.get<string>('NODE_ENV') === 'test';
 
                 logger.log(`Configurando BullModule com Redis Upstash em ${host}`);
 
@@ -25,8 +26,13 @@ import { Logger } from '@nestjs/common';
                         tls: {
                             rejectUnauthorized: false,
                         },
-                        connectTimeout: 10000,
-                        lazyConnect: true,
+                        connectTimeout: 30000,
+                        lazyConnect: !isTest, // Não usar lazyConnect em testes
+                        retryStrategy: (times) => {
+                            const delay = Math.min(times * 50, 2000);
+                            return delay;
+                        },
+                        maxRetriesPerRequest: 3,
                     },
                 };
             },

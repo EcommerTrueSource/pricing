@@ -1,55 +1,44 @@
 import { Module } from '@nestjs/common';
-import { BullModule } from '@nestjs/bull';
-import { NotificationController } from './controllers/notification.controller';
 import { NotificationService } from './services/notification.service';
-import { IntegrationModule } from '../../integration/integration.module';
-import { PrismaModule } from '../../../shared/modules/prisma.module';
-import { SecurityModule } from '../../security/security.module';
+import { NotificationController } from './controllers/notification.controller';
 import { PrismaService } from '../../../shared/services/prisma.service';
-import { NotificationProcessor } from './processors/notification.processor';
-import { RedisModule } from '../../integration/redis/redis.module';
-import { NotificationQueueService } from './services/notification-queue.service';
-import { NotificationMapper } from './mappers/notification.mapper';
 import { WhatsAppService } from '../../integration/whatsapp/services/whatsapp.service';
+import { NotificationMapper } from './mappers/notification.mapper';
+import { BullModule } from '@nestjs/bull';
+import { ConfigModule } from '@nestjs/config';
 import { RateLimiterModule } from '../../../shared/modules/rate-limiter.module';
 import { ValidationModule } from '../../../shared/modules/validation.module';
-
-// Fornecendo o serviço diretamente
-const messagingServiceProvider = {
-    provide: 'MESSAGING_SERVICE',
-    useClass: WhatsAppService,
-};
+import { SecurityModule } from '../../../modules/security/security.module';
 
 @Module({
     imports: [
         BullModule.registerQueue({
             name: 'notifications',
             defaultJobOptions: {
-                attempts: 5,
+                attempts: 3,
                 backoff: {
-                    type: 'fixed',
-                    delay: 60000,
+                    type: 'exponential',
+                    delay: 1000,
                 },
                 removeOnComplete: true,
-                removeOnFail: true,
             },
         }),
-        IntegrationModule,
-        PrismaModule,
-        SecurityModule,
-        RedisModule,
+        ConfigModule,
         RateLimiterModule,
         ValidationModule,
+        SecurityModule,
     ],
     controllers: [NotificationController],
     providers: [
         NotificationService,
-        NotificationProcessor,
         PrismaService,
-        messagingServiceProvider,
-        NotificationQueueService,
+        WhatsAppService,
         NotificationMapper,
+        {
+            provide: 'MESSAGING_SERVICE',
+            useClass: WhatsAppService,
+        },
     ],
-    exports: [NotificationService, NotificationQueueService, 'MESSAGING_SERVICE'],
+    exports: [NotificationService],
 })
 export class NotificationModule {}

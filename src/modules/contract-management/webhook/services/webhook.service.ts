@@ -233,22 +233,10 @@ export class WebhookService {
             );
             this.logger.log('✅ Status do contrato atualizado');
 
-            // A notificação será criada pelo ContractEventHandler ao receber o evento contract.created
-            // que foi emitido dentro de ContractService.create.
-            // Remover a emissão duplicada daqui.
-            /*
-            this.logger.log('📣 Emitindo evento contract.created para o contrato:', {
-                contractId: signedContract.id,
-                sellerId: signedContract.sellerId,
-            });
-
-            this.eventEmitter.emit(
-                'contract.created',
-                new ContractCreatedEvent(signedContract.id, signedContract.sellerId, new Date()),
-            );
-
-            this.logger.log('✅ Evento contract.created emitido com sucesso');
-            */
+            // Garante que temos todos os dados necessários
+            if (!signedContract.signingUrl) {
+                throw new Error('URL de assinatura não gerada');
+            }
 
             return {
                 success: true,

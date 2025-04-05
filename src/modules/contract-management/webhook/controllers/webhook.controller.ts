@@ -1,4 +1,4 @@
-import { Body, Controller, Logger, Post } from '@nestjs/common';
+import { Body, Controller, Logger, Post, HttpCode, HttpStatus } from '@nestjs/common';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { WebhookService } from '../services/webhook.service';
 import { WebhookDto } from '../dtos/webhook.dto';
@@ -11,6 +11,7 @@ export class WebhookController {
     constructor(private readonly webhookService: WebhookService) {}
 
     @Post('contract')
+    @HttpCode(HttpStatus.CREATED)
     @ApiOperation({ summary: 'Recebe webhook para criação de contrato' })
     @ApiResponse({
         status: 201,
