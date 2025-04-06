@@ -26,7 +26,7 @@ export class ContractReminderScheduler {
      * Executa ao meio-dia em dias úteis (segunda a sexta) para verificar contratos pendentes
      * e enviar lembretes com base no tempo desde a criação do contrato
      */
-    @Cron('0 12 * * 1-5') // Executa às 12h00 de segunda a sexta
+    @Cron('0 12 * * 1-5', { name: 'checkPendingContracts' }) // Executa às 12h00 de segunda a sexta
     async checkPendingContractsForReminders() {
         const hoje = new Date();
         // Verifica se é um dia útil (1-5 = segunda a sexta)

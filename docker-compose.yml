@@ -1,19 +1,28 @@
 version: '3.8'
 
 services:
-  postgres:
-    image: postgres:14-alpine
-    container_name: contract_management_db
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: pricing_db
-    ports:
-      - '5432:5432'
+  cloud-sql-proxy:
+    image: gcr.io/cloud-sql-connectors/cloud-sql-proxy:latest
+    container_name: contract_management_proxy
+    command:
+      - "--address=0.0.0.0"
+      - "--port=5432"
+      - "--credentials-file=/secrets/key.json"
+      - "truebrands-warehouse:southamerica-east1:pricing"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - ./key.json:/secrets/key.json:ro
     networks:
       - contract_management_network
+    restart: unless-stopped
+
+  redis:
+    image: redis:6-alpine
+    container_name: contract_management_redis
+    networks:
+      - contract_management_network
+    ports:
+      - '6379:6379'
+    restart: unless-stopped
 
   api:
     build:
@@ -21,44 +30,23 @@ services:
       dockerfile: Dockerfile
     container_name: contract_management_api
     depends_on:
-      - postgres
+      - redis
+      - cloud-sql-proxy
     ports:
       - '3000:3000'
+    env_file:
+      - .env.local
     environment:
-      - NODE_ENV=production
-    volumes:
-      - .:/app
-      - /app/node_modules
+      NODE_ENV: production
+      DATABASE_URL: postgresql://pricing-system:True%40%23012987@cloud-sql-proxy:5432/contract-management?schema=public
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ''
     networks:
       - contract_management_network
-    secrets:
-      - db_password
-      - google_credentials
-      - jwt_secret
-      - whatsapp_api_key
-      - email_api_key
-      - sms_api_key
-      - signature_api_key
-
-volumes:
-  postgres_data:
+    command: sh -c "npx prisma db push --accept-data-loss && node dist/main"
+    restart: unless-stopped
 
 networks:
   contract_management_network:
     driver: bridge
-
-secrets:
-  db_password:
-    file: ./secrets/db_password.txt
-  google_credentials:
-    file: ./secrets/google_credentials.json
-  jwt_secret:
-    file: ./secrets/jwt_secret.txt
-  whatsapp_api_key:
-    file: ./secrets/whatsapp_api_key.txt
-  email_api_key:
-    file: ./secrets/email_api_key.txt
-  sms_api_key:
-    file: ./secrets/sms_api_key.txt
-  signature_api_key:
-    file: ./secrets/signature_api_key.txt

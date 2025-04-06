@@ -365,18 +365,68 @@ export class ContractService implements IContractService {
                 { short_link: true },
             );
 
-            // Encontra o signatário que criamos
-            const signer = document.signatures.find(
-                (s) => s.email === seller.email && s.action?.name === 'SIGN',
+            this.logger.debug(
+                '[sendToSignature] Resposta recebida da Autentique:',
+                JSON.stringify(document, null, 2),
             );
+
+            // Encontra o signatário que criamos
+            const sellerEmailLower = seller.email.toLowerCase().trim();
+            this.logger.debug(
+                `[sendToSignature] Buscando signatário com email "${sellerEmailLower}" na resposta da Autentique`,
+            );
+
+            const signer = document.signatures.find(
+                (s) =>
+                    s.email.toLowerCase().trim() === sellerEmailLower && s.action?.name === 'SIGN',
+            );
+
+            this.logger.debug(
+                `[sendToSignature] Resultado da busca por signatário: ${signer ? 'ENCONTRADO' : 'NÃO ENCONTRADO'}`,
+            );
+            if (signer) {
+                this.logger.debug(
+                    `[sendToSignature] Dados do signatário encontrado: email=${signer.email}, action=${signer.action?.name}, link=${JSON.stringify(signer.link)}`,
+                );
+            } else {
+                this.logger.debug(
+                    `[sendToSignature] Todos os signatários disponíveis: ${JSON.stringify(document.signatures.map((s) => ({ email: s.email, action: s.action?.name })))}`,
+                );
+            }
+
+            // Após a verificação do signatário
             if (!signer?.link?.short_link) {
                 this.logger.error('Erro ao obter link de assinatura:', {
                     documentId: document.id,
                     signatures: document.signatures,
                     sellerEmail: seller.email,
                 });
-                throw new Error('Link de assinatura não gerado');
+
+                // Em vez de falhar completamente, vamos prosseguir mesmo sem o link
+                this.logger.log(
+                    '[sendToSignature] ⚠️ Continuando sem URL de assinatura - o contrato será criado, mas a notificação pode falhar',
+                );
+
+                // Atualiza o contrato no banco de dados de qualquer maneira
+                const updatedContract = await this.updateStatus(
+                    id,
+                    EContractStatus.PENDING_SIGNATURE,
+                    EStatusChangeReason.SENT_TO_SIGNATURE,
+                    {
+                        external_id: document.id,
+                        signing_url: null, // Sem URL
+                    },
+                );
+
+                // Retornamos o contrato, mas o WebhookService vai detectar a falta da URL
+                return this.mapToResponseDto(updatedContract);
+
+                // Não lançamos mais o erro: throw new Error('URL de assinatura não gerada');
             }
+
+            this.logger.debug(
+                `[sendToSignature] Link de assinatura encontrado: ${signer.link.short_link}`,
+            );
 
             // Atualiza o status do contrato
             const updatedContract = await this.updateStatus(
@@ -453,8 +503,48 @@ export class ContractService implements IContractService {
             : undefined;
 
         this.logger.debug(
-            `[mapToResponseDto] Mapeando contrato ID: ${contract.id}, Seller ID: ${contract.seller_id}`,
+            `[mapToResponseDto] Mapeando contrato ID: ${contract.id}, Seller ID: ${contract.seller_id}, URL: ${contract.signing_url || 'NENHUMA'}`,
         );
+
+        // Adiciona verificação adicional para identificar inconsistências
+        if (contract.status === EContractStatus.PENDING_SIGNATURE && !contract.signing_url) {
+            this.logger.warn(
+                `[mapToResponseDto] INCONSISTÊNCIA DETECTADA: Contrato ${contract.id} está PENDING_SIGNATURE mas não tem signing_url!`,
+            );
+
+            // Tenta buscar diretamente do banco para verificar se há divergência
+            try {
+                const directCheck = this.prisma.contracts.findUnique({
+                    where: { id: contract.id },
+                    select: { signing_url: true },
+                });
+
+                // Loga resultado quando a Promise for resolvida
+                directCheck
+                    .then((result) => {
+                        if (result && result.signing_url) {
+                            this.logger.warn(
+                                `[mapToResponseDto] 🔍 Verificação direta encontrou URL no banco: ${result.signing_url}`,
+                            );
+                            // Corrije o objeto contract com o valor do banco
+                            contract.signing_url = result.signing_url;
+                        } else {
+                            this.logger.warn(
+                                `[mapToResponseDto] 🔍 Verificação direta confirma ausência de URL no banco`,
+                            );
+                        }
+                    })
+                    .catch((err) => {
+                        this.logger.error(
+                            `[mapToResponseDto] Erro na verificação direta: ${err.message}`,
+                        );
+                    });
+            } catch (err) {
+                this.logger.error(
+                    `[mapToResponseDto] Falha ao fazer verificação direta: ${err.message}`,
+                );
+            }
+        }
 
         return {
             id: contract.id,

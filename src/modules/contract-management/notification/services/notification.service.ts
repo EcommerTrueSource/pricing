@@ -142,18 +142,40 @@ export class NotificationService implements INotificationService {
      */
     private async enqueueNotification(notificationId: string): Promise<void> {
         try {
-            this.logger.log(`Adicionando notificação ${notificationId} à fila Bull...`);
+            this.logger.log(`🔔 Início do enfileiramento: Notificação ${notificationId}`);
 
             // Verificando se a fila está pronta
+            this.logger.log(`⏳ Verificando conexão com Redis/Bull...`);
             await this.notificationQueue.isReady();
+            this.logger.log(`✅ Conexão com Redis/Bull estabelecida`);
 
             // Adiciona o job à fila
-            await this.notificationQueue.add('send-notification', {
-                notificationId: notificationId,
-                attemptNumber: 1,
-            });
+            this.logger.log(`⏳ Adicionando job 'send-notification' à fila...`);
+            const job = await this.notificationQueue.add(
+                'send-notification',
+                {
+                    notificationId: notificationId,
+                    attemptNumber: 1,
+                },
+                {
+                    attempts: 3,
+                    backoff: {
+                        type: 'exponential',
+                        delay: 1000,
+                    },
+                    removeOnComplete: true,
+                },
+            );
+            this.logger.log(`✅ Job criado com ID: ${job.id}`);
 
-            this.logger.log(`✅ Notificação ${notificationId} adicionada à fila com sucesso`);
+            // Diagnóstico: verificar o número de processadores ativos
+            this.logger.log(`📊 Diagnóstico: verificando workers da fila...`);
+            const workers = await this.notificationQueue.getWorkers();
+            this.logger.log(`📊 Número de workers ativos na fila: ${workers.length}`);
+
+            this.logger.log(
+                `✅ Notificação ${notificationId} adicionada à fila com sucesso (jobId: ${job.id})`,
+            );
         } catch (queueError) {
             this.logger.error(
                 `❌ Falha ao adicionar notificação ${notificationId} à fila: ${queueError.message}`,

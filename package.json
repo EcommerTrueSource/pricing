@@ -22,7 +22,7 @@
     "test:whatsapp:watch": "jest test/whatsapp.integration.spec.ts --config ./test/jest.integration.config.js --watch",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
-    "prisma:studio": "npx prisma studio --port 5555",
+    "prisma:studio": "dotenv -e .env.local -- npx prisma studio --port 5555 ",
     "prisma:deploy": "prisma migrate deploy",
     "start:proxy": "powershell -ExecutionPolicy Bypass -File start-proxy.ps1",
     "dev": "npm run start:dev",

@@ -3,7 +3,6 @@ import { BrasilApiService } from '../../../integration/brasil-api/services/brasi
 import { ContractService } from '../../contract/services/contract.service';
 import { ContractTemplateService } from '../../template/services/contract-template.service';
 import { EContractStatus } from '../../contract/enums/contract-status.enum';
-import { EStatusChangeReason } from '../../contract/enums/status-change-reason.enum';
 import { NotificationService } from '../../notification/services/notification.service';
 import { WebhookDto } from '../dtos/webhook.dto';
 import { GoogleDocsService } from '../../template/services/google-docs.service';
@@ -84,9 +83,57 @@ export class WebhookService {
                     };
                 }
 
-                // Se não tem contrato assinado, atualiza dados e remove contratos pendentes
+                // Se não tem contrato assinado, verifica se tem contrato pendente recente
+                this.logger.log('📄 Verificando existência de contratos pendentes recentes...');
+
+                // Procura por um contrato PENDING_SIGNATURE criado nos últimos 10 minutos
+                const recentContract = await this.prisma.contracts.findFirst({
+                    where: {
+                        seller_id: existingSeller.id,
+                        status: EContractStatus.PENDING_SIGNATURE,
+                        signing_url: { not: null }, // Tem que ter URL de assinatura
+                        created_at: {
+                            gte: new Date(Date.now() - 10 * 60 * 1000), // 10 minutos
+                        },
+                    },
+                    orderBy: {
+                        created_at: 'desc',
+                    },
+                });
+
+                if (recentContract?.signing_url) {
+                    this.logger.log(
+                        '✅ Contrato PENDING_SIGNATURE recente encontrado, reutilizando:',
+                        {
+                            id: recentContract.id,
+                            signingUrl: recentContract.signing_url,
+                            createdAt: recentContract.created_at,
+                        },
+                    );
+
+                    // Apenas atualiza dados do vendedor e retorna
+                    await this.prisma.sellers.update({
+                        where: { id: existingSeller.id },
+                        data: {
+                            email: data.email,
+                            telefone: data.telefone,
+                        },
+                    });
+
+                    return {
+                        success: true,
+                        message: 'Contrato pendente de assinatura já existe',
+                        data: {
+                            contractId: recentContract.id,
+                            sellerId: existingSeller.id,
+                            signingUrl: recentContract.signing_url,
+                        },
+                    };
+                }
+
+                // Se não tem contrato recente válido, atualiza dados e remove contratos pendentes
                 this.logger.log(
-                    '📄 Atualizando dados do vendedor e removendo contratos pendentes...',
+                    '📄 Nenhum contrato recente válido. Atualizando dados do vendedor e removendo contratos pendentes...',
                 );
 
                 // Busca os contratos pendentes do vendedor
@@ -219,24 +266,77 @@ export class WebhookService {
             // 8. Envia para assinatura
             this.logger.log('📄 Enviando contrato para assinatura...');
             const signedContract = await this.contractService.sendToSignature(contract.id);
+
+            // Verifica se conseguimos a URL de assinatura
+            if (!signedContract.signingUrl) {
+                this.logger.warn(
+                    '⚠️ URL de assinatura ausente no objeto retornado, tentando buscar diretamente do banco...',
+                );
+
+                // Busca o contrato diretamente do banco para obter a URL
+                const contractFromDB = await this.prisma.contracts.findUnique({
+                    where: { id: signedContract.id },
+                    select: { signing_url: true, external_id: true },
+                });
+
+                if (contractFromDB?.signing_url) {
+                    this.logger.log(
+                        '✅ URL de assinatura recuperada diretamente do banco de dados:',
+                        contractFromDB.signing_url,
+                    );
+
+                    // Usa a URL encontrada no banco
+                    return {
+                        success: true,
+                        message:
+                            'Contrato criado e enviado para assinatura com sucesso (URL recuperada do banco)',
+                        data: {
+                            contractId: signedContract.id,
+                            sellerId: signedContract.sellerId,
+                            signingUrl: contractFromDB.signing_url,
+                            externalId: contractFromDB.external_id,
+                        },
+                    };
+                }
+
+                // Se ainda não encontrou a URL, emite alerta mas continua o fluxo
+                this.logger.warn(
+                    '⚠️ Contrato criado, mas URL de assinatura não foi encontrada nem no banco. ' +
+                        'Uma tentativa automática de recuperação será feita posteriormente.',
+                    { contractId: contract.id },
+                );
+
+                // Emite um evento que poderia ser capturado por um sistema de recuperação assíncrona
+                try {
+                    this.eventEmitter.emit('contract.signing_url_missing', {
+                        contractId: contract.id,
+                        sellerId: signedContract.sellerId,
+                        externalId: signedContract.externalId,
+                        timestamp: new Date(),
+                    });
+                } catch (eventError) {
+                    this.logger.error('❌ Erro ao emitir evento de URL ausente:', eventError);
+                }
+
+                // Retornamos sucesso parcial, informando que o contrato foi criado, mas sem URL
+                return {
+                    success: true,
+                    warning:
+                        'Contrato criado sem URL de assinatura, uma recuperação será tentada automaticamente',
+                    data: {
+                        contractId: signedContract.id,
+                        sellerId: signedContract.sellerId,
+                        signingUrl: null,
+                        urlPending: true,
+                    },
+                };
+            }
+
+            // Caso normal (com URL)
             this.logger.log('✅ Contrato enviado para assinatura:', {
                 id: signedContract.id,
                 signingUrl: signedContract.signingUrl,
             });
-
-            // 9. Atualiza status do contrato
-            await this.contractService.updateStatus(
-                contract.id,
-                EContractStatus.PENDING_SIGNATURE,
-                EStatusChangeReason.SENT_TO_SIGNATURE,
-                { externalId: signedContract.externalId },
-            );
-            this.logger.log('✅ Status do contrato atualizado');
-
-            // Garante que temos todos os dados necessários
-            if (!signedContract.signingUrl) {
-                throw new Error('URL de assinatura não gerada');
-            }
 
             return {
                 success: true,

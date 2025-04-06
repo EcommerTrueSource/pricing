@@ -8,6 +8,7 @@ import {
     Delete,
     Query,
     UseGuards,
+    Logger,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { NotificationService } from '../services/notification.service';
@@ -18,13 +19,20 @@ import { ENotificationStatus } from '../enums/notification-status.enum';
 import { AuthGuard } from '../../../security/guards/auth.guard';
 import { RoleGuard } from '../../../security/guards/role.guard';
 import { Roles } from '../../../security/decorators/roles.decorator';
+import { InjectQueue } from '@nestjs/bull';
+import { Queue } from 'bull';
 
 @ApiTags('notificações')
 @ApiBearerAuth()
 @Controller('notifications')
 @UseGuards(AuthGuard, RoleGuard)
 export class NotificationController {
-    constructor(private readonly notificationService: NotificationService) {}
+    private readonly logger = new Logger(NotificationController.name);
+
+    constructor(
+        private readonly notificationService: NotificationService,
+        @InjectQueue('notifications') private readonly notificationQueue: Queue,
+    ) {}
 
     @Post()
     @Roles('ADMIN', 'MANAGER')
@@ -205,5 +213,79 @@ export class NotificationController {
     @ApiResponse({ status: 403, description: 'Acesso negado' })
     async markAsFailed(@Param('id') id: string): Promise<NotificationResponseDto> {
         return await this.notificationService.markAsFailed(id);
+    }
+
+    @Get('queue/diagnostics')
+    async queueDiagnostics() {
+        this.logger.log('🔍 Executando diagnóstico de fila Bull');
+
+        try {
+            // Verifica se a fila está pronta
+            const isReady = await this.notificationQueue.isReady();
+
+            // Obtém contagens de jobs
+            const waitingCount = await this.notificationQueue.getWaitingCount();
+            const activeCount = await this.notificationQueue.getActiveCount();
+            const delayedCount = await this.notificationQueue.getDelayedCount();
+            const completedCount = await this.notificationQueue.getCompletedCount();
+            const failedCount = await this.notificationQueue.getFailedCount();
+
+            // Obtém workers
+            const workers = await this.notificationQueue.getWorkers();
+
+            // Obtém até 10 jobs de cada tipo para inspeção
+            const waitingJobs = await this.notificationQueue.getJobs(['waiting'], 0, 10, true);
+            const activeJobs = await this.notificationQueue.getJobs(['active'], 0, 10, true);
+            const failedJobs = await this.notificationQueue.getJobs(['failed'], 0, 10, true);
+
+            // Informações do Redis
+            const redisInfo = await this.notificationQueue.client.info();
+
+            this.logger.log(`✅ Diagnóstico concluído`);
+
+            return {
+                success: true,
+                queueName: 'notifications',
+                isReady,
+                counts: {
+                    waiting: waitingCount,
+                    active: activeCount,
+                    delayed: delayedCount,
+                    completed: completedCount,
+                    failed: failedCount,
+                },
+                workerCount: workers.length,
+                samples: {
+                    waiting: waitingJobs.map((job) => ({
+                        id: job.id,
+                        data: job.data,
+                        timestamp: job.timestamp,
+                    })),
+                    active: activeJobs.map((job) => ({
+                        id: job.id,
+                        data: job.data,
+                        timestamp: job.timestamp,
+                        processedBy: job.processedOn,
+                    })),
+                    failed: failedJobs.map((job) => ({
+                        id: job.id,
+                        data: job.data,
+                        failedReason: job.failedReason,
+                        stacktrace: job.stacktrace,
+                        attemptsMade: job.attemptsMade,
+                    })),
+                },
+                redisConnected: !!redisInfo,
+                message: 'Diagnóstico da fila concluído com sucesso',
+            };
+        } catch (error) {
+            this.logger.error(`Erro no diagnóstico da fila: ${error.message}`, error.stack);
+            return {
+                success: false,
+                error: error.message,
+                stack: error.stack,
+                message: 'Falha ao executar diagnóstico de fila',
+            };
+        }
     }
 }

@@ -217,12 +217,73 @@ export class AutentiqueService implements IAutentiqueService {
 
             // Gera links de assinatura para todos os signatários se a opção short_link estiver ativa
             const document = response.data.data.createDocument;
+
             if (options?.short_link) {
+                this.logger.log(
+                    '[createDocument] Opção short_link ativada, tentando gerar links para signatários',
+                );
+
+                // Implementação resiliente com retry
+                const MAX_RETRIES = 2; // Total de 3 tentativas (1 original + 2 retries)
+
                 for (const signature of document.signatures) {
                     if (signature.action?.name === 'SIGN') {
-                        const shortLink = await this.createSignatureLink(signature.public_id);
-                        // Atualiza o link na assinatura
-                        signature.link = { short_link: shortLink };
+                        let linkObtained = false;
+                        let lastError = null;
+
+                        // Já tem link na resposta inicial?
+                        if (signature.link?.short_link) {
+                            this.logger.log(
+                                `[createDocument] Signatário ${signature.email} já tem link na resposta inicial: ${signature.link.short_link}`,
+                            );
+                            linkObtained = true;
+                            continue;
+                        }
+
+                        // Tentativa com retry
+                        for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+                            try {
+                                if (attempt > 0) {
+                                    this.logger.log(
+                                        `[createDocument] Retry #${attempt} para obter link para ${signature.email}`,
+                                    );
+                                    // Pequena pausa entre retries
+                                    await new Promise((resolve) =>
+                                        setTimeout(resolve, 500 * attempt),
+                                    );
+                                }
+
+                                const shortLink = await this.createSignatureLink(
+                                    signature.public_id,
+                                );
+                                if (!shortLink) {
+                                    throw new Error('Link retornado está vazio');
+                                }
+
+                                this.logger.log(
+                                    `[createDocument] Link obtido com sucesso (tentativa ${attempt + 1}): ${shortLink}`,
+                                );
+                                signature.link = { short_link: shortLink };
+                                linkObtained = true;
+                                break; // Sai do loop de retry
+                            } catch (error) {
+                                lastError = error;
+                                this.logger.error(
+                                    `[createDocument] Falha na tentativa ${attempt + 1} de obter link: ${error.message}`,
+                                );
+                                // Continua para próxima tentativa se não for a última
+                            }
+                        }
+
+                        // Se após todas as tentativas não conseguimos o link
+                        if (!linkObtained) {
+                            // NÃO lançamos erro, apenas logamos e continuamos
+                            this.logger.error(
+                                `[createDocument] Não foi possível obter link após ${MAX_RETRIES + 1} tentativas para ${signature.email}. Último erro: ${lastError?.message}`,
+                            );
+                            // Criamos um objeto link vazio para evitar null/undefined
+                            signature.link = { short_link: null };
+                        }
                     }
                 }
             }
@@ -235,9 +296,12 @@ export class AutentiqueService implements IAutentiqueService {
     }
 
     async createSignatureLink(publicId: string): Promise<string> {
+        this.logger.debug(`[createSignatureLink] Iniciando para public_id: ${publicId}`);
         try {
-            this.logger.log(`Criando link de assinatura para public_id: ${publicId}`);
-
+            // Log antes da chamada
+            this.logger.debug(
+                `[createSignatureLink] Enviando requisição GraphQL para Autentique para public_id: ${publicId}`,
+            );
             const response = await this.httpClient.post('/graphql', {
                 query: `
                     mutation {
@@ -250,21 +314,45 @@ export class AutentiqueService implements IAutentiqueService {
                 `,
             });
 
+            // Log detalhado da resposta, ANTES de verificar erros
+            this.logger.debug(
+                `[createSignatureLink] Resposta da API recebida para public_id ${publicId}: ${JSON.stringify(response.data, null, 2)}`,
+            );
+
             if (response.data.errors) {
-                this.logger.error('Erro ao criar link de assinatura:', response.data.errors);
-                throw new Error(response.data.errors[0].message);
+                this.logger.error(
+                    `[createSignatureLink] Erros GraphQL da Autentique para public_id ${publicId}: ${JSON.stringify(response.data.errors)}`,
+                );
+                // Lança o primeiro erro GraphQL para ser pego pelo catch abaixo
+                throw new Error(
+                    response.data.errors[0].message || 'Erro GraphQL ao criar link de assinatura',
+                );
             }
 
             if (!response.data.data?.createLinkToSignature?.short_link) {
-                this.logger.error('Resposta inválida ao criar link de assinatura:', response.data);
-                throw new Error('Resposta inválida ao criar link de assinatura');
+                this.logger.error(
+                    `[createSignatureLink] Resposta inválida ou sem short_link da Autentique para public_id ${publicId}: ${JSON.stringify(response.data)}`,
+                );
+                throw new Error('Resposta inválida ou sem short_link ao criar link de assinatura');
             }
 
             const shortLink = response.data.data.createLinkToSignature.short_link;
-            this.logger.log(`Link de assinatura criado com sucesso: ${shortLink}`);
+            this.logger.log(
+                `[createSignatureLink] Link de assinatura criado com sucesso para public_id ${publicId}: ${shortLink}`,
+            );
             return shortLink;
         } catch (error) {
-            this.logger.error('Erro ao criar link de assinatura:', error);
+            this.logger.error(
+                `[createSignatureLink] Erro CATASTRÓFICO ao criar link para public_id ${publicId}: ${error.message}`,
+                error.stack,
+            );
+            // Logar detalhes específicos do Axios se for um erro Axios
+            if (error.isAxiosError) {
+                this.logger.error(
+                    `[createSignatureLink] Detalhes do erro Axios: Status=${error.response?.status}, Data=${JSON.stringify(error.response?.data)}`,
+                );
+            }
+            // Propaga o erro para que o chamador (createDocument) saiba que falhou
             throw error;
         }
     }

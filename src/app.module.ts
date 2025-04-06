@@ -25,11 +25,7 @@ import { EventEmitterModule } from '@nestjs/event-emitter';
                     host: configService.get('REDIS_HOST'),
                     port: parseInt(configService.get('REDIS_PORT')),
                     password: configService.get('REDIS_PASSWORD'),
-                    tls: {
-                        rejectUnauthorized: false,
-                    },
                     connectTimeout: 10000,
-                    lazyConnect: true,
                 },
             }),
             inject: [ConfigService],

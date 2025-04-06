@@ -6,6 +6,9 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci
 
+COPY prisma ./prisma
+RUN npx prisma generate
+
 COPY . .
 RUN npm run build
 
@@ -18,6 +21,7 @@ COPY package*.json ./
 RUN npm ci --only=production
 
 COPY --from=builder /app/dist ./dist
+COPY prisma ./prisma
 
 # Criar diretório para secrets
 RUN mkdir -p /app/secrets

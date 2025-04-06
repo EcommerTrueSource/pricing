@@ -30,7 +30,30 @@ export class NotificationProcessor implements INotificationProcessor {
         @InjectQueue('notifications') private readonly notificationQueue: Queue,
         private readonly prisma: PrismaService,
     ) {
-        this.logger.log('NotificationProcessor inicializado');
+        this.logger.log('⭐⭐⭐ NotificationProcessor inicializado ⭐⭐⭐');
+
+        // Verificar a conexão com a fila
+        this.notificationQueue
+            .isReady()
+            .then(() => {
+                this.logger.log('✅ Conexão com fila Bull estabelecida com sucesso!');
+
+                // Verificar jobs pendentes
+                this.notificationQueue
+                    .getJobs(['waiting', 'active', 'delayed'])
+                    .then((jobs) => {
+                        this.logger.log(`📊 Jobs pendentes na fila: ${jobs.length}`);
+                        if (jobs.length > 0) {
+                            this.logger.log(`📝 Primeiro job: ${JSON.stringify(jobs[0].data)}`);
+                        }
+                    })
+                    .catch((err) => {
+                        this.logger.error(`❌ Erro ao verificar jobs pendentes: ${err.message}`);
+                    });
+            })
+            .catch((err) => {
+                this.logger.error(`❌ Erro ao conectar com fila Bull: ${err.message}`);
+            });
     }
 
     @Process('send-notification')

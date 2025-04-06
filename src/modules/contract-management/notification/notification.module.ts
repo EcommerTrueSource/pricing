@@ -9,6 +9,7 @@ import { ConfigModule } from '@nestjs/config';
 import { RateLimiterModule } from '../../../shared/modules/rate-limiter.module';
 import { ValidationModule } from '../../../shared/modules/validation.module';
 import { SecurityModule } from '../../../modules/security/security.module';
+import { NotificationProcessor } from './processors/notification.processor';
 
 @Module({
     imports: [
@@ -34,6 +35,7 @@ import { SecurityModule } from '../../../modules/security/security.module';
         PrismaService,
         WhatsAppService,
         NotificationMapper,
+        NotificationProcessor,
         {
             provide: 'MESSAGING_SERVICE',
             useClass: WhatsAppService,

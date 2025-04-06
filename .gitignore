@@ -52,6 +52,7 @@ coverage/
 # TypeScript
 *.tsbuildinfo
 key.json
+token.json
 
 # compiled output
 /dist

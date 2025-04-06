@@ -6,6 +6,7 @@ key.json
 credentials.json
 *.pem
 *.key
+token.json
 
 # Arquivos de desenvolvimento
 .git
