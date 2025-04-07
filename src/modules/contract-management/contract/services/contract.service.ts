@@ -362,7 +362,30 @@ export class ContractService implements IContractService {
                         email: seller.email,
                     },
                 ],
-                { short_link: true },
+                {
+                    short_link: true,
+                    message: `Prezado(a) Parceiro(a),
+
+Esperamos que esta mensagem o(a) encontre bem.
+
+Temos o prazer de apresentar a nova Política de Preço Mínimo da TRUE BRANDS, uma iniciativa estratégica que visa fortalecer nossa parceria e garantir a equidade e competitividade no mercado.
+
+É importante ressaltar que esta política se limita exclusivamente à regulamentação do preço final de venda online e não altera outras políticas comerciais vigentes.
+
+Benefícios da Nova Política:
+• Proteção das Margens de Lucro: Garante que os preços não sejam praticados abaixo de níveis que comprometam suas margens.
+• Fortalecimento da Marca: Contribui para manter a percepção de valor dos produtos e preservar a imagem da marca.
+• Concorrência Justa: Promove um ambiente competitivo saudável e equilibrado, evitando práticas desleais de preços.
+
+Este é um passo importante para garantir o sucesso contínuo de nossa parceria. Estamos comprometidos em crescer e prosperar juntos no mercado.
+
+No botão de assinatura abaixo, você encontrará o contrato que detalha essas diretrizes. Solicitamos que leia o documento atentamente e, caso esteja de acordo com os termos, assine-o.
+
+Caso tenha alguma dúvida ou necessite de assistência, não hesite em entrar em contato conosco. Agradecemos antecipadamente pela sua cooperação e continuamos à disposição para fornecer todo o suporte necessário.
+
+Atenciosamente,
+Equipe TRUE BRANDS`,
+                },
             );
 
             this.logger.debug(

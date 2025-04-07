@@ -44,29 +44,31 @@ export class BrasilApiService {
 
     async getSellerData(cnpj: string): Promise<ISellerData> {
         try {
-            this.logger.debug(`Iniciando busca de dados para CNPJ: ${cnpj}`);
+            this.logger.debug(`🟠 BRASIL-API: Iniciando busca de dados para CNPJ: ${cnpj}`);
             const formattedCnpj = this.formatCnpj(cnpj);
-            this.logger.debug(`CNPJ formatado: ${formattedCnpj}`);
+            this.logger.debug(`🟠 BRASIL-API: CNPJ formatado: ${formattedCnpj}`);
 
             const url = `${this.baseUrl}/cnpj/v1/${formattedCnpj}`;
-            this.logger.debug(`URL da requisição: ${url}`);
+            this.logger.debug(`🟠 BRASIL-API: URL da requisição: ${url}`);
 
             const response = await firstValueFrom(
                 this.httpService.get(url).pipe(
                     map((response) => {
-                        this.logger.debug('Resposta recebida da API:', response.data);
+                        this.logger.debug(
+                            `🟠 BRASIL-API: Resposta recebida com status: ${response.status}`,
+                        );
                         return response.data;
                     }),
                 ),
             );
 
             if (!response) {
-                this.logger.error('CNPJ não encontrado na Brasil API');
+                this.logger.error('🟠 BRASIL-API: CNPJ não encontrado na Brasil API');
                 throw new HttpException('CNPJ não encontrado na Brasil API', HttpStatus.NOT_FOUND);
             }
 
             const mappedData = this.mapResponseToSellerData(response);
-            this.logger.debug('Dados mapeados:', mappedData);
+            this.logger.debug('🟠 BRASIL-API: Dados mapeados com sucesso');
             return mappedData;
         } catch (error) {
             this.logger.error('Erro detalhado na chamada à Brasil API:', {

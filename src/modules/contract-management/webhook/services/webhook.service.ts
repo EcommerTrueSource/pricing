@@ -1,5 +1,4 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { BrasilApiService } from '../../../integration/brasil-api/services/brasil-api.service';
 import { ContractService } from '../../contract/services/contract.service';
 import { ContractTemplateService } from '../../template/services/contract-template.service';
 import { EContractStatus } from '../../contract/enums/contract-status.enum';
@@ -8,6 +7,7 @@ import { WebhookDto } from '../dtos/webhook.dto';
 import { GoogleDocsService } from '../../template/services/google-docs.service';
 import { PrismaService } from '../../../../shared/services/prisma.service';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import { CnpjIntegrationService } from '../../../integration/cnpj/services/cnpj-integration.service';
 
 @Injectable()
 export class WebhookService {
@@ -15,7 +15,7 @@ export class WebhookService {
 
     constructor(
         private readonly prisma: PrismaService,
-        private readonly brasilApiService: BrasilApiService,
+        private readonly cnpjIntegrationService: CnpjIntegrationService,
         private readonly contractService: ContractService,
         private readonly contractTemplateService: ContractTemplateService,
         private readonly googleDocsService: GoogleDocsService,
@@ -36,12 +36,12 @@ export class WebhookService {
                 throw new Error('Dados obrigatórios não fornecidos');
             }
 
-            // 2. Busca dados na Brasil API
-            this.logger.log('📄 Buscando dados na Brasil API para CNPJ:', data.cnpj);
-            const brasilApiData = await this.brasilApiService.getSellerData(data.cnpj);
-            this.logger.log('✅ Dados recebidos da Brasil API:', {
-                razaoSocial: brasilApiData.razaoSocial,
-                endereco: brasilApiData.endereco,
+            // 2. Busca dados usando nosso serviço de integração (CNPJWS com fallback para Brasil API)
+            this.logger.log('📊 Buscando dados de CNPJ via serviço de integração:', data.cnpj);
+            const sellerData = await this.cnpjIntegrationService.getSellerData(data.cnpj);
+            this.logger.log('✅ Dados recebidos via serviço de integração:', {
+                razaoSocial: sellerData.razaoSocial,
+                endereco: sellerData.endereco,
             });
 
             // 3. Verifica se o vendedor já existe
@@ -191,10 +191,10 @@ export class WebhookService {
                 const newSeller = await this.prisma.sellers.create({
                     data: {
                         cnpj: data.cnpj.replace(/\D/g, '').slice(0, 14),
-                        razao_social: brasilApiData.razaoSocial.slice(0, 255),
+                        razao_social: sellerData.razaoSocial.slice(0, 255),
                         email: data.email.slice(0, 255),
                         telefone: data.telefone.replace(/\D/g, '').slice(0, 20),
-                        endereco: `${brasilApiData.endereco.logradouro}, ${brasilApiData.endereco.numero} - ${brasilApiData.endereco.bairro}, ${brasilApiData.endereco.municipio}/${brasilApiData.endereco.uf} - CEP: ${brasilApiData.endereco.cep}`,
+                        endereco: `${sellerData.endereco.logradouro}, ${sellerData.endereco.numero} - ${sellerData.endereco.bairro}, ${sellerData.endereco.municipio}/${sellerData.endereco.uf} - CEP: ${sellerData.endereco.cep}`,
                     },
                 });
                 sellerId = newSeller.id;
@@ -220,9 +220,9 @@ export class WebhookService {
             const formattedDate = this.formatDate(currentDate);
             const filledDocId = await this.googleDocsService.createFilledTemplate(documentId, {
                 seller: {
-                    name: brasilApiData.razaoSocial,
+                    name: sellerData.razaoSocial,
                     cnpj: formattedCnpj,
-                    address: `${brasilApiData.endereco.logradouro}, ${brasilApiData.endereco.numero} - ${brasilApiData.endereco.bairro}, ${brasilApiData.endereco.municipio}/${brasilApiData.endereco.uf} - CEP: ${brasilApiData.endereco.cep}`,
+                    address: `${sellerData.endereco.logradouro}, ${sellerData.endereco.numero} - ${sellerData.endereco.bairro}, ${sellerData.endereco.municipio}/${sellerData.endereco.uf} - CEP: ${sellerData.endereco.cep}`,
                 },
                 date: formattedDate,
             });
@@ -243,21 +243,21 @@ export class WebhookService {
                 },
                 {
                     contractNumber: await this.generateContractNumber(),
-                    companyName: brasilApiData.razaoSocial,
+                    companyName: sellerData.razaoSocial,
                     companyCnpj: data.cnpj,
-                    companyAddress: `${brasilApiData.endereco.logradouro}, ${brasilApiData.endereco.numero} - ${brasilApiData.endereco.bairro}, ${brasilApiData.endereco.municipio}/${brasilApiData.endereco.uf} - CEP: ${brasilApiData.endereco.cep}`,
+                    companyAddress: `${sellerData.endereco.logradouro}, ${sellerData.endereco.numero} - ${sellerData.endereco.bairro}, ${sellerData.endereco.municipio}/${sellerData.endereco.uf} - CEP: ${sellerData.endereco.cep}`,
                     contractDuration: 12,
                     commissionRate: 10,
                     paymentDay: 10,
                     jurisdiction: 'São Paulo/SP',
-                    city: brasilApiData.endereco.municipio,
+                    city: sellerData.endereco.municipio,
                     seller: {
                         id: sellerId,
                         cnpj: data.cnpj,
-                        razao_social: brasilApiData.razaoSocial,
+                        razao_social: sellerData.razaoSocial,
                         email: data.email,
                         telefone: data.telefone,
-                        endereco: `${brasilApiData.endereco.logradouro}, ${brasilApiData.endereco.numero} - ${brasilApiData.endereco.bairro}, ${brasilApiData.endereco.municipio}/${brasilApiData.endereco.uf} - CEP: ${brasilApiData.endereco.cep}`,
+                        endereco: `${sellerData.endereco.logradouro}, ${sellerData.endereco.numero} - ${sellerData.endereco.bairro}, ${sellerData.endereco.municipio}/${sellerData.endereco.uf} - CEP: ${sellerData.endereco.cep}`,
                     },
                 },
             );

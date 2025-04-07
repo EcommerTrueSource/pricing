@@ -13,6 +13,8 @@ import { BrasilApiModule } from '../integration/brasil-api/brasil-api.module';
 import { WebhookModule } from './webhook/webhook.module';
 import { SchedulerModule } from './scheduler/scheduler.module';
 import { EventsModule } from './events/events.module';
+import { CnpjIntegrationModule } from '../integration/cnpj/cnpj-integration.module';
+import { UpdateSellersCnpjwsCommand } from './commands/update-seller-cnpjws.command';
 
 @Module({
     imports: [
@@ -25,11 +27,12 @@ import { EventsModule } from './events/events.module';
         IntegrationModule,
         AutentiqueModule,
         BrasilApiModule,
+        CnpjIntegrationModule,
         WebhookModule,
         SchedulerModule,
         EventsModule,
     ],
-    providers: [UpdateSellersCommand, UpdateAllContractsCommand],
+    providers: [UpdateSellersCommand, UpdateAllContractsCommand, UpdateSellersCnpjwsCommand],
     exports: [
         SellerModule,
         ContractModule,
@@ -38,6 +41,7 @@ import { EventsModule } from './events/events.module';
         IntegrationModule,
         AutentiqueModule,
         BrasilApiModule,
+        CnpjIntegrationModule,
         WebhookModule,
         SchedulerModule,
         EventsModule,

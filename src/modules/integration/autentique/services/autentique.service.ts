@@ -99,7 +99,7 @@ export class AutentiqueService implements IAutentiqueService {
         documentName: string,
         content: string,
         signers: Array<{ name: string; email: string }>,
-        options?: { short_link?: boolean },
+        options?: { short_link?: boolean; message?: string },
     ): Promise<IAutentiqueDocument> {
         try {
             this.logger.log(`Iniciando criação de documento: ${documentName}`);
@@ -155,7 +155,7 @@ export class AutentiqueService implements IAutentiqueService {
                 variables: {
                     document: {
                         name: documentName,
-                        message: 'Por favor, assine o documento.',
+                        message: options?.message || 'Por favor, assine o documento.',
                         reminder: 'DAILY',
                         configs: {
                             notification_finished: true,

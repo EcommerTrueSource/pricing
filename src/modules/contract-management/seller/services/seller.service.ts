@@ -3,7 +3,7 @@ import { Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../../shared/services/prisma.service';
 import { CreateSellerDto } from '../dtos/create-seller.dto';
 import { UpdateSellerDto } from '../dtos/update-seller.dto';
-import { BrasilApiService } from '../../../integration/brasil-api/services/brasil-api.service';
+import { CnpjIntegrationService } from '../../../integration/cnpj/services/cnpj-integration.service';
 import { SellerResponseDto } from '../dtos/seller-response.dto';
 
 @Injectable()
@@ -14,15 +14,15 @@ export class SellerService {
 
     constructor(
         private readonly prisma: PrismaService,
-        private readonly brasilApiService: BrasilApiService,
+        private readonly cnpjIntegrationService: CnpjIntegrationService,
     ) {}
 
     async create(createSellerDto: CreateSellerDto): Promise<SellerResponseDto> {
         try {
             this.logger.log(`Iniciando criação de seller com CNPJ: ${createSellerDto.cnpj}`);
 
-            const sellerData = await this.brasilApiService.getSellerData(createSellerDto.cnpj);
-            this.logger.log(`Dados obtidos da Brasil API: ${JSON.stringify(sellerData)}`);
+            const sellerData = await this.cnpjIntegrationService.getSellerData(createSellerDto.cnpj);
+            this.logger.log(`Dados obtidos da API de CNPJ: ${JSON.stringify(sellerData)}`);
 
             const seller = await this.prisma.sellers.create({
                 data: {
@@ -88,7 +88,7 @@ export class SellerService {
                 `Tentando atualizar seller ${id} (tentativa ${retryCount + 1}/${this.MAX_RETRIES})`,
             );
             const seller = await this.findOne(id);
-            const companyData = await this.brasilApiService.getSellerData(seller.cnpj);
+            const companyData = await this.cnpjIntegrationService.getSellerData(seller.cnpj);
 
             // Formata o endereço completo
             const enderecoCompleto = `${companyData.endereco.logradouro}, ${companyData.endereco.numero} - ${companyData.endereco.bairro}, ${companyData.endereco.municipio} - ${companyData.endereco.uf}, ${companyData.endereco.cep}`;
