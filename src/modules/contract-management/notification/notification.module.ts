@@ -10,6 +10,8 @@ import { RateLimiterModule } from '../../../shared/modules/rate-limiter.module';
 import { ValidationModule } from '../../../shared/modules/validation.module';
 import { SecurityModule } from '../../../modules/security/security.module';
 import { NotificationProcessor } from './processors/notification.processor';
+import { NotificationSettingsController } from './controllers/notification-settings.controller';
+import { SystemSettingsModule } from '../../../shared/modules/system-settings.module';
 
 @Module({
     imports: [
@@ -28,8 +30,9 @@ import { NotificationProcessor } from './processors/notification.processor';
         RateLimiterModule,
         ValidationModule,
         SecurityModule,
+        SystemSettingsModule,
     ],
-    controllers: [NotificationController],
+    controllers: [NotificationController, NotificationSettingsController],
     providers: [
         NotificationService,
         PrismaService,

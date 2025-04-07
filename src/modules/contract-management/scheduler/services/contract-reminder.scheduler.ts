@@ -4,6 +4,7 @@ import { PrismaService } from '../../../../shared/services/prisma.service';
 import { EContractStatus } from '../../contract/enums/contract-status.enum';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { ContractReminderEvent } from '../../events/contract.events';
+import { SystemSettingsService } from '../../../../shared/services/system-settings.service';
 
 @Injectable()
 export class ContractReminderScheduler {
@@ -18,6 +19,7 @@ export class ContractReminderScheduler {
     constructor(
         private readonly prisma: PrismaService,
         private readonly eventEmitter: EventEmitter2,
+        private readonly systemSettingsService: SystemSettingsService,
     ) {
         this.logger.log('Inicializado ContractReminderScheduler');
     }
@@ -33,6 +35,16 @@ export class ContractReminderScheduler {
         const diaDaSemana = hoje.getDay();
         if (diaDaSemana === 0 || diaDaSemana === 6) {
             this.logger.log('🗓️ Hoje é fim de semana. Notificações não serão enviadas.');
+            return;
+        }
+
+        // Verifica se as notificações estão pausadas
+        const isPaused = await this.systemSettingsService.areNotificationsPaused();
+        if (isPaused) {
+            const pauseDate = await this.systemSettingsService.getNotificationPauseDate();
+            this.logger.log(
+                `⏸️ Notificações estão pausadas até ${pauseDate.toISOString()}. Pulando verificação.`,
+            );
             return;
         }
 

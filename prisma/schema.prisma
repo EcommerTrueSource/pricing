@@ -9,6 +9,41 @@ datasource db {
   extensions = [uuid_ossp(map: "uuid-ossp", schema: "public")]
 }
 
+model users {
+  id            String         @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  email         String         @unique
+  password_hash String?
+  first_name    String
+  last_name     String
+  picture       String?
+  roles         String[]       @default(["USER"])
+  provider      String?        @default("local")
+  provider_id   String?
+  active        Boolean        @default(true)
+  created_at    DateTime       @default(now()) @db.Timestamptz(6)
+  updated_at    DateTime       @default(now()) @updatedAt @db.Timestamptz(6)
+  invites_sent  user_invites[] @relation("SentBy")
+
+  @@map("users")
+}
+
+model user_invites {
+  id           String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  email        String
+  token        String    @unique
+  roles        String[]  @default(["USER"])
+  expires_at   DateTime  @db.Timestamptz(6)
+  accepted     Boolean   @default(false)
+  created_at   DateTime  @default(now()) @db.Timestamptz(6)
+  sent_by_id   String    @db.Uuid
+  sent_by      users     @relation("SentBy", fields: [sent_by_id], references: [id])
+  accepted_at  DateTime? @db.Timestamptz(6)
+
+  @@index([token])
+  @@index([email])
+  @@map("user_invites")
+}
+
 model contracts {
   id                    String           @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
   seller_id             String           @db.Uuid
@@ -92,6 +127,17 @@ model templates {
   created_at DateTime?   @default(now()) @db.Timestamptz(6)
   updated_at DateTime?   @default(now()) @db.Timestamptz(6)
   contracts  contracts[]
+}
+
+model system_settings {
+  id            String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  key           String    @unique
+  value         String
+  description   String?
+  updated_at    DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
+  created_at    DateTime  @default(now()) @db.Timestamptz(6)
+
+  @@index([key])
 }
 
 enum contract_status {

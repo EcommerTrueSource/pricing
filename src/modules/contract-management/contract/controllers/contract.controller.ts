@@ -35,12 +35,15 @@ import * as puppeteer from 'puppeteer';
 import { ContractTemplateService } from '../../template/services/contract-template.service';
 import { UpdateContractByCnpjDto } from '../dtos/update-contract-by-cnpj.dto';
 import { SellerResponseDto } from '../../seller/dtos/seller-response.dto';
+import { Logger } from '@nestjs/common';
 
 @ApiTags('contratos')
 @ApiBearerAuth()
 @UseGuards(AuthGuard, RoleGuard)
 @Controller('contracts')
 export class ContractController {
+    private readonly logger = new Logger(ContractController.name);
+
     constructor(
         private readonly contractService: ContractService,
         private readonly contractTemplateService: ContractTemplateService,
@@ -404,5 +407,58 @@ export class ContractController {
         @Body() data?: { content: string; seller: SellerResponseDto },
     ): Promise<ContractResponseDto> {
         return this.contractService.sendToSignature(id, data);
+    }
+
+    @Post('expire-all-pending')
+    @Roles('ADMIN')
+    @ApiOperation({
+        summary: 'Expirar todos os contratos pendentes de assinatura (somente para migração)',
+    })
+    @ApiResponse({
+        status: 200,
+        description: 'Total de contratos expirados',
+        schema: {
+            properties: {
+                message: { type: 'string' },
+                total: { type: 'number' },
+            },
+        },
+    })
+    @ApiResponse({ status: 401, description: 'Não autorizado' })
+    @ApiResponse({ status: 403, description: 'Acesso negado' })
+    async expireAllPending() {
+        this.logger.log('Iniciando expiração de todos os contratos pendentes...');
+
+        // Obter todos os contratos pendentes
+        const pendingContracts = await this.contractService.findByStatus(
+            EContractStatus.PENDING_SIGNATURE,
+        );
+        this.logger.log(`Encontrados ${pendingContracts.length} contratos pendentes para expirar`);
+
+        let count = 0;
+
+        for (const contract of pendingContracts) {
+            try {
+                await this.contractService.updateStatus(
+                    contract.id,
+                    EContractStatus.EXPIRED,
+                    EStatusChangeReason.EXPIRED,
+                    { reason: 'Migração para ambiente de produção' },
+                );
+                count++;
+                this.logger.log(
+                    `Contrato ${contract.id} expirado com sucesso (${count}/${pendingContracts.length})`,
+                );
+            } catch (error) {
+                this.logger.error(`Erro ao expirar contrato ${contract.id}: ${error.message}`);
+            }
+        }
+
+        this.logger.log(`Processo concluído. Total de contratos expirados: ${count}`);
+
+        return {
+            message: 'Processo concluído com sucesso',
+            total: count,
+        };
     }
 }
