@@ -34,10 +34,12 @@ RUN npx prisma generate
 ENV PORT=8080
 
 # Criar diretório para secrets
-RUN mkdir -p /app/secrets
+RUN mkdir -p /secrets
+ENV DOTENV_PATH=/secrets/.env.local
 
 # Configurar permissões
 RUN chown -R node:node /app
+RUN chown -R node:node /secrets
 USER node
 
 # Expor porta

@@ -5,7 +5,14 @@ import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 import helmet from 'helmet';
 import * as cookieParser from 'cookie-parser';
+import * as dotenv from 'dotenv';
+import * as path from 'path';
 // import * as csurf from 'csurf';
+
+// Carrega as variáveis de ambiente do caminho especificado na variável DOTENV_PATH ou usa .env.local por padrão
+const envPath = process.env.DOTENV_PATH || path.resolve(process.cwd(), '.env.local');
+console.log(`Carregando variáveis de ambiente de: ${envPath}`);
+dotenv.config({ path: envPath });
 
 async function bootstrap() {
     const app = await NestFactory.create(AppModule);
