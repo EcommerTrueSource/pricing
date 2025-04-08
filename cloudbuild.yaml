@@ -25,30 +25,43 @@ steps:
   - '--memory=1Gi'
   - '--cpu=1'
 
-# Recuperar URL do banco do Secret Manager
-- name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
-  entrypoint: 'bash'
+# Executar migração do Prisma diretamente no Cloud Build
+- name: 'gcr.io/cloud-builders/gcloud'
+  id: 'migrate'
+  entrypoint: bash
   args:
-  - '-c'
-  - |
-    gcloud secrets versions access latest --secret=database_url_pricing > /workspace/database_url.txt
+    - '-c'
+    - |
+      echo "Iniciando migração diretamente via Cloud SQL proxy..."
+      apt-get update -qq && apt-get install -y -qq gcc python3-dev
 
-# Executar migração do Prisma usando a URL do banco do secret
-- name: 'node:18-alpine'
-  entrypoint: sh
-  args:
-  - '-c'
-  - |
-    echo "Configurando permissões..."
-    mkdir -p /tmp/.npm-global
-    NPM_DIR=/tmp/.npm-global
-    export NPM_CONFIG_PREFIX=$$NPM_DIR
-    export PATH=$$NPM_DIR/bin:$$PATH
-    export DATABASE_URL=$$(cat /workspace/database_url.txt)
-    echo "Instalando Prisma CLI..."
-    npm install -g prisma --no-fund --no-audit --quiet
-    echo "Executando migração..."
-    cd /workspace && prisma migrate deploy
+      # Instalar o Cloud SQL Proxy
+      wget https://dl.google.com/cloudsql/cloud_sql_proxy.linux.amd64 -O cloud_sql_proxy
+      chmod +x cloud_sql_proxy
+
+      # Iniciar o Cloud SQL Proxy em background
+      mkdir -p /cloudsql
+      ./cloud_sql_proxy -instances=${PROJECT_ID}:southamerica-east1:pricing=tcp:5432 &
+      PROXY_PID=$!
+
+      # Dar tempo para o proxy iniciar
+      sleep 5
+
+      # Instalar Node.js e Prisma
+      curl -fsSL https://deb.nodesource.com/setup_18.x | bash -
+      apt-get install -y nodejs
+      npm install -g prisma
+
+      # Instalar dependências do projeto
+      cd /workspace
+      npm ci
+
+      # Executar migração
+      echo "Executando migração do Prisma..."
+      DATABASE_URL="postgresql://pricing-system:True%40%23012987@localhost:5432/contract-management" npx prisma migrate deploy
+
+      # Matar o proxy quando terminar
+      kill $PROXY_PID
 
 # Verificar se a aplicação está saudável
 - name: 'gcr.io/cloud-builders/curl'
