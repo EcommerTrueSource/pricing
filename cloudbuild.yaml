@@ -1,0 +1,54 @@
+steps:
+# Build da imagem
+- name: 'gcr.io/cloud-builders/docker'
+  args: ['build', '-t', 'southamerica-east1-docker.pkg.dev/${PROJECT_ID}/pricing-repo/pricing:${SHORT_SHA}', '.']
+
+# Push para o Artifact Registry
+- name: 'gcr.io/cloud-builders/docker'
+  args: ['push', 'southamerica-east1-docker.pkg.dev/${PROJECT_ID}/pricing-repo/pricing:${SHORT_SHA}']
+
+# Deploy no Cloud Run
+- name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+  entrypoint: gcloud
+  args:
+  - 'run'
+  - 'deploy'
+  - 'pricing'
+  - '--image=southamerica-east1-docker.pkg.dev/${PROJECT_ID}/pricing-repo/pricing:${SHORT_SHA}'
+  - '--region=southamerica-east1'
+  - '--platform=managed'
+  - '--allow-unauthenticated'
+  - '--set-secrets=DOTENV=pricing-env:latest'
+  - '--add-cloudsql-instances=${PROJECT_ID}:southamerica-east1:pricing'
+  - '--service-account=pricing-contract@${PROJECT_ID}.iam.gserviceaccount.com'
+  - '--memory=1Gi'
+  - '--cpu=1'
+
+# Executar migrações do Prisma (opcional)
+- name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+  entrypoint: gcloud
+  args:
+  - 'run'
+  - 'jobs'
+  - 'create'
+  - 'pricing-migrate-${SHORT_SHA}'
+  - '--image=southamerica-east1-docker.pkg.dev/${PROJECT_ID}/pricing-repo/pricing:${SHORT_SHA}'
+  - '--set-secrets=DOTENV=pricing-env:latest'
+  - '--add-cloudsql-instances=${PROJECT_ID}:southamerica-east1:pricing'
+  - '--command=npx,prisma,migrate,deploy'
+  - '--region=southamerica-east1'
+  - '--tasks=1'
+  - '--service-account=pricing-contract@${PROJECT_ID}.iam.gserviceaccount.com'
+
+# Executar as migrações
+- name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+  entrypoint: gcloud
+  args:
+  - 'run'
+  - 'jobs'
+  - 'execute'
+  - 'pricing-migrate-${SHORT_SHA}'
+  - '--region=southamerica-east1'
+
+images:
+- 'southamerica-east1-docker.pkg.dev/${PROJECT_ID}/pricing-repo/pricing:${SHORT_SHA}'
