@@ -25,7 +25,7 @@ steps:
   - '--memory=1Gi'
   - '--cpu=1'
 
-# Executar migrações do Prisma (opcional)
+# Criar job de migração do Prisma
 - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
   entrypoint: gcloud
   args:
@@ -42,7 +42,7 @@ steps:
   - '--tasks=1'
   - '--service-account=pricing-contract@${PROJECT_ID}.iam.gserviceaccount.com'
 
-# Executar as migrações
+# Executar job de migração
 - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
   entrypoint: gcloud
   args:
@@ -51,34 +51,7 @@ steps:
   - 'execute'
   - 'pricing-migrate-${SHORT_SHA}'
   - '--region=southamerica-east1'
-
-# Limpar jobs antigos
-- name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
-  entrypoint: gcloud
-  args:
-  - 'run'
-  - 'jobs'
-  - 'list'
-  - '--platform=managed'
-  - '--region=southamerica-east1'
-  - '--filter=name~pricing-migrate-'
-  - '--format=value(name)'
-  - '--sort-by=~creationTimestamp'
-  - '--limit=5'
-  - '--offset=5'
-  id: 'list-old-jobs'
-
-# Deletar jobs antigos
-- name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
-  entrypoint: gcloud
-  args:
-  - 'run'
-  - 'jobs'
-  - 'delete'
-  - '--region=southamerica-east1'
-  - '--quiet'
-  - '$(gcloud run jobs list --platform managed --region southamerica-east1 --filter="name~pricing-migrate-" --format="value(name)" --sort-by=~creationTimestamp --limit=5 --offset=5)'
-  waitFor: ['list-old-jobs']
+  - '--wait'
 
 # Verificar se a aplicação está saudável
 - name: 'gcr.io/cloud-builders/curl'
@@ -86,3 +59,5 @@ steps:
 
 images:
 - 'southamerica-east1-docker.pkg.dev/${PROJECT_ID}/pricing-repo/pricing:${SHORT_SHA}'
+
+timeout: '1800s'

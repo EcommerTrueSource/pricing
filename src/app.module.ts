@@ -10,6 +10,8 @@ import { AutentiqueModule } from './modules/integration/autentique/autentique.mo
 import { IntegrationModule } from './modules/integration/integration.module';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { EnvironmentModule } from './shared/modules/environment.module';
+import { TerminusModule } from '@nestjs/terminus';
+import { HealthModule } from './shared/modules/health.module';
 
 @Module({
     imports: [
@@ -49,6 +51,8 @@ import { EnvironmentModule } from './shared/modules/environment.module';
         BrasilApiModule,
         AutentiqueModule,
         IntegrationModule,
+        TerminusModule,
+        HealthModule,
     ],
 })
 export class AppModule {}

@@ -28,8 +28,13 @@ async function bootstrap() {
 
     // Configuração do CORS
     app.enableCors({
-        origin: process.env.FRONTEND_URL || 'http://localhost:4200',
+        origin: [
+            process.env.FRONTEND_URL || 'http://localhost:4200',
+            'https://pricing-460815276546.southamerica-east1.run.app'
+        ],
         credentials: true,
+        methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH', 'HEAD'],
+        allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
     });
     logger.log('CORS configurado');
 
