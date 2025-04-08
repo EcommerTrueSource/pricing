@@ -25,48 +25,22 @@ steps:
   - '--memory=1Gi'
   - '--cpu=1'
 
-# Deletar job de migração anterior se existir
+# Recuperar URL do banco do Secret Manager
 - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
-  entrypoint: gcloud
+  entrypoint: 'bash'
   args:
-  - 'run'
-  - 'jobs'
-  - 'delete'
-  - 'pricing-migrate'
-  - '--region=southamerica-east1'
-  - '--quiet'
-  allowFailure: true
+  - '-c'
+  - |
+    gcloud secrets versions access latest --secret=database_url_pricing > /workspace/database_url.txt
 
-# Criar job de migração do Prisma
-- name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
-  entrypoint: gcloud
+# Executar migração do Prisma usando a URL do banco do secret
+- name: 'southamerica-east1-docker.pkg.dev/${PROJECT_ID}/pricing-repo/pricing:${SHORT_SHA}'
+  entrypoint: sh
   args:
-  - 'run'
-  - 'jobs'
-  - 'create'
-  - 'pricing-migrate'
-  - '--image=southamerica-east1-docker.pkg.dev/${PROJECT_ID}/pricing-repo/pricing:${SHORT_SHA}'
-  - '--region=southamerica-east1'
-  - '--tasks=1'
-  - '--memory=512Mi'
-  - '--cpu=1'
-  - '--max-retries=3'
-  - '--task-timeout=600s'
-  - '--set-secrets=DATABASE_URL=database_url_pricing:latest'
-  - '--set-cloudsql-instances=${PROJECT_ID}:southamerica-east1:pricing'
-  - '--service-account=pricing-contract@${PROJECT_ID}.iam.gserviceaccount.com'
-  - '--command=sh,-c,echo "Iniciando migração..." && echo "DATABASE_URL: $${DATABASE_URL}" && npx prisma migrate deploy'
-
-# Executar job de migração
-- name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
-  entrypoint: gcloud
-  args:
-  - 'run'
-  - 'jobs'
-  - 'execute'
-  - 'pricing-migrate'
-  - '--region=southamerica-east1'
-  - '--wait'
+  - '-c'
+  - 'export DATABASE_URL=$(cat /workspace/database_url.txt) && npx prisma migrate deploy'
+  env:
+  - 'NODE_ENV=production'
 
 # Verificar se a aplicação está saudável
 - name: 'gcr.io/cloud-builders/curl'
