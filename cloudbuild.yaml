@@ -52,18 +52,33 @@ steps:
   - 'pricing-migrate-${SHORT_SHA}'
   - '--region=southamerica-east1'
 
-# Opcional: Limpar jobs antigos após a execução
+# Limpar jobs antigos
 - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
-  entrypoint: 'bash'
+  entrypoint: gcloud
   args:
-  - '-c'
-  - |
-    # Manter apenas os 5 jobs mais recentes
-    JOBS=$(gcloud run jobs list --platform managed --region southamerica-east1 --filter="name~'pricing-migrate-'" --format="value(name)" | sort -r | tail -n +6)
-    for JOB in $JOBS; do
-      echo "Removing old job: $JOB"
-      gcloud run jobs delete $JOB --region=southamerica-east1 --quiet
-    done
+  - 'run'
+  - 'jobs'
+  - 'list'
+  - '--platform=managed'
+  - '--region=southamerica-east1'
+  - '--filter=name~pricing-migrate-'
+  - '--format=value(name)'
+  - '--sort-by=~creationTimestamp'
+  - '--limit=5'
+  - '--offset=5'
+  id: 'list-old-jobs'
+
+# Deletar jobs antigos
+- name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+  entrypoint: gcloud
+  args:
+  - 'run'
+  - 'jobs'
+  - 'delete'
+  - '--region=southamerica-east1'
+  - '--quiet'
+  - '$(gcloud run jobs list --platform managed --region southamerica-east1 --filter="name~pricing-migrate-" --format="value(name)" --sort-by=~creationTimestamp --limit=5 --offset=5)'
+  waitFor: ['list-old-jobs']
 
 # Verificar se a aplicação está saudável
 - name: 'gcr.io/cloud-builders/curl'
