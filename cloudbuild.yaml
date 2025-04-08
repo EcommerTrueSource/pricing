@@ -20,7 +20,7 @@ steps:
   - '--allow-unauthenticated'
   - '--set-secrets=/secrets/.env.local=pricing-env:latest'
   - '--update-env-vars=DOTENV_PATH=/secrets/.env.local'
-  - '--add-cloudsql-instances=${PROJECT_ID}:southamerica-east1:pricing'
+  - '--set-cloudsql-instances=${PROJECT_ID}:southamerica-east1:pricing'
   - '--service-account=pricing-contract@${PROJECT_ID}.iam.gserviceaccount.com'
   - '--memory=1Gi'
   - '--cpu=1'
@@ -36,7 +36,7 @@ steps:
   - '--image=southamerica-east1-docker.pkg.dev/${PROJECT_ID}/pricing-repo/pricing:${SHORT_SHA}'
   - '--set-secrets=/secrets/.env.local=pricing-env:latest'
   - '--update-env-vars=DOTENV_PATH=/secrets/.env.local'
-  - '--add-cloudsql-instances=${PROJECT_ID}:southamerica-east1:pricing'
+  - '--set-cloudsql-instances=${PROJECT_ID}:southamerica-east1:pricing'
   - '--command=npx,prisma,migrate,deploy'
   - '--region=southamerica-east1'
   - '--tasks=1'
@@ -51,6 +51,23 @@ steps:
   - 'execute'
   - 'pricing-migrate-${SHORT_SHA}'
   - '--region=southamerica-east1'
+
+# Opcional: Limpar jobs antigos após a execução
+- name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+  entrypoint: 'bash'
+  args:
+  - '-c'
+  - |
+    # Manter apenas os 5 jobs mais recentes
+    JOBS=$(gcloud run jobs list --platform managed --region southamerica-east1 --filter="name~'pricing-migrate-'" --format="value(name)" | sort -r | tail -n +6)
+    for JOB in $JOBS; do
+      echo "Removing old job: $JOB"
+      gcloud run jobs delete $JOB --region=southamerica-east1 --quiet
+    done
+
+# Verificar se a aplicação está saudável
+- name: 'gcr.io/cloud-builders/curl'
+  args: ['--retry', '5', '--retry-delay', '10', '-s', '-o', '/dev/null', '-w', '%{http_code}', 'https://pricing-460815276546.southamerica-east1.run.app/api/health']
 
 images:
 - 'southamerica-east1-docker.pkg.dev/${PROJECT_ID}/pricing-repo/pricing:${SHORT_SHA}'
