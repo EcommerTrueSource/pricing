@@ -41,9 +41,10 @@ steps:
   - |
     echo "Configurando permissões..."
     mkdir -p /tmp/.npm-global
-    export NPM_CONFIG_PREFIX=/tmp/.npm-global
-    export PATH=$NPM_CONFIG_PREFIX/bin:$PATH
-    export DATABASE_URL=$(cat /workspace/database_url.txt)
+    NPM_DIR=/tmp/.npm-global
+    export NPM_CONFIG_PREFIX=$$NPM_DIR
+    export PATH=$$NPM_DIR/bin:$$PATH
+    export DATABASE_URL=$$(cat /workspace/database_url.txt)
     echo "Instalando Prisma CLI..."
     npm install -g prisma --no-fund --no-audit --quiet
     echo "Executando migração..."
