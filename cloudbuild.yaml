@@ -37,7 +37,7 @@ steps:
   - '--set-secrets=/secrets/.env.local=env_pricing:latest'
   - '--update-env-vars=NODE_ENV=production'
   - '--set-cloudsql-instances=${PROJECT_ID}:southamerica-east1:pricing'
-  - '--command=sh,-c,echo "[Verificação] Iniciando processo de migração..." && ls -la /secrets/.env.local && echo "[Verificação] Carregando variáveis de ambiente..." && set -a && source /secrets/.env.local && set +a && echo "[Verificação] Variáveis carregadas" && echo "[Verificação] DATABASE_URL=$DATABASE_URL" && echo "[Verificação] Executando migração..." && npx prisma migrate deploy'
+  - '--command=sh,-c,echo "[Verificação] Iniciando processo de migração..." && ls -la /secrets/.env.local && echo "[Verificação] Carregando variáveis de ambiente..." && set -a && source /secrets/.env.local && set +a && echo "[Verificação] Variáveis carregadas" && echo "[Verificação] DATABASE_URL=$$DATABASE_URL" && echo "[Verificação] Executando migração..." && npx prisma migrate deploy'
   - '--region=southamerica-east1'
   - '--tasks=1'
   - '--memory=512Mi'
