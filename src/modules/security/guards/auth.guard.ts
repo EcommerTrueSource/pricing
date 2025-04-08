@@ -1,7 +1,9 @@
-import { Injectable, ExecutionContext, Logger } from '@nestjs/common';
+import { Injectable, ExecutionContext, Logger, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { AuthGuard as PassportAuthGuard } from '@nestjs/passport';
 import { ConfigService } from '@nestjs/config';
+import { Reflector } from '@nestjs/core';
+import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
 
 @Injectable()
 export class AuthGuard extends PassportAuthGuard('jwt') {
@@ -10,23 +12,35 @@ export class AuthGuard extends PassportAuthGuard('jwt') {
     constructor(
         private readonly jwtService: JwtService,
         private readonly configService: ConfigService,
+        private reflector: Reflector,
     ) {
         super();
     }
 
-    async canActivate(context: ExecutionContext): Promise<boolean> {
-        try {
-            const result = await super.canActivate(context);
-            if (result) {
-                const request = context.switchToHttp().getRequest();
-                this.logger.debug(`Autenticação bem-sucedida para usuário: ${request.user?.email}`);
-                return true;
-            }
-        } catch (error) {
-            this.logger.warn(`Falha na autenticação via Passport: ${error.message}`);
+    canActivate(context: ExecutionContext) {
+        const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
+            context.getHandler(),
+            context.getClass(),
+        ]);
+
+        if (isPublic) {
+            return true;
         }
 
-        return this.validateTokenLegacy(context);
+        return super.canActivate(context);
+    }
+
+    handleRequest<TUser = any>(
+        err: any,
+        user: any,
+        _info: any,
+        _context: ExecutionContext,
+        _status?: any,
+    ): TUser {
+        if (err || !user) {
+            throw err || new UnauthorizedException();
+        }
+        return user;
     }
 
     private async validateTokenLegacy(context: ExecutionContext): Promise<boolean> {

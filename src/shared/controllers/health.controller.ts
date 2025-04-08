@@ -10,6 +10,7 @@ import {
 } from '@nestjs/terminus';
 import { PrismaService } from '../services/prisma.service';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
+import { Public } from '../../modules/security/decorators/public.decorator';
 
 @ApiTags('Health Check')
 @Controller('health')
@@ -24,6 +25,7 @@ export class HealthController {
     ) {}
 
     @Get()
+    @Public()
     @HealthCheck()
     @ApiOperation({ summary: 'Verificar a saúde da aplicação' })
     @ApiResponse({

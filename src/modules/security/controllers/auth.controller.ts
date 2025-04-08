@@ -17,6 +17,7 @@ import { AuthService } from '../services/auth.service';
 import { AuthGuard } from '@nestjs/passport';
 import { Response } from 'express';
 import { ConfigService } from '@nestjs/config';
+import { Public } from '../decorators/public.decorator';
 
 @ApiTags('Autenticação')
 @Controller('auth')
@@ -31,6 +32,7 @@ export class AuthController {
     }
 
     @Post('login')
+    @Public()
     @UseGuards(AuthGuard('local'))
     @ApiOperation({ summary: 'Realizar login com email e senha' })
     @ApiResponse({
@@ -84,6 +86,7 @@ export class AuthController {
     }
 
     @Get('google')
+    @Public()
     @UseGuards(AuthGuard('google'))
     @ApiOperation({ summary: 'Iniciar autenticação com Google' })
     async googleAuth() {
@@ -93,6 +96,7 @@ export class AuthController {
     }
 
     @Get('google/callback')
+    @Public()
     @UseGuards(AuthGuard('google'))
     @ApiOperation({ summary: 'Callback para autenticação com Google' })
     async googleAuthCallback(@Req() req, @Res() res: Response) {
