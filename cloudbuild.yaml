@@ -18,7 +18,7 @@ steps:
   - '--region=southamerica-east1'
   - '--platform=managed'
   - '--allow-unauthenticated'
-  - '--set-secrets=DOTENV=pricing-env:latest'
+  - '--set-secrets=/app/.env.local=pricing-env:latest'
   - '--add-cloudsql-instances=${PROJECT_ID}:southamerica-east1:pricing'
   - '--service-account=pricing-contract@${PROJECT_ID}.iam.gserviceaccount.com'
   - '--memory=1Gi'
