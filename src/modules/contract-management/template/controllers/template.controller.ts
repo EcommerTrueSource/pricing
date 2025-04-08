@@ -9,8 +9,9 @@ import {
     HttpException,
     HttpStatus,
     Logger,
+    UseGuards,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { TemplateService } from '../services/template.service';
 import { CreateTemplateDto } from '../dtos/create-template.dto';
 import { UpdateTemplateDto } from '../dtos/update-template.dto';
@@ -18,8 +19,13 @@ import { TemplateResponseDto } from '../dtos/template-response.dto';
 import { ContractTemplateService } from '../services/contract-template.service';
 import { GoogleDocsService } from '../services/google-docs.service';
 import { ConfigService } from '@nestjs/config';
+import { AuthGuard } from '../../../security/guards/auth.guard';
+import { RoleGuard } from '../../../security/guards/role.guard';
+import { Roles } from '../../../security/decorators/roles.decorator';
 
 @ApiTags('templates')
+@ApiBearerAuth()
+@UseGuards(AuthGuard, RoleGuard)
 @Controller('templates')
 export class TemplateController {
     private readonly logger = new Logger(TemplateController.name);
@@ -39,6 +45,7 @@ export class TemplateController {
     }
 
     @Post('update')
+    @Roles('ADMIN', 'MANAGER')
     @ApiOperation({ summary: 'Atualizar template ativo do Google Docs' })
     @ApiResponse({ status: 200, description: 'Template atualizado com sucesso' })
     @ApiResponse({ status: 400, description: 'Erro ao atualizar template' })
@@ -57,6 +64,7 @@ export class TemplateController {
     }
 
     @Get('test-connection')
+    @Roles('ADMIN', 'MANAGER')
     @ApiOperation({ summary: 'Testar conexão com Google Docs' })
     @ApiResponse({ status: 200, description: 'Conexão estabelecida com sucesso' })
     @ApiResponse({ status: 400, description: 'Erro ao conectar com Google Docs' })
@@ -80,6 +88,7 @@ export class TemplateController {
     }
 
     @Post()
+    @Roles('ADMIN', 'MANAGER')
     @ApiOperation({ summary: 'Criar um novo template' })
     @ApiResponse({
         status: 201,
@@ -92,6 +101,7 @@ export class TemplateController {
     }
 
     @Get()
+    @Roles('ADMIN', 'MANAGER', 'USER')
     @ApiOperation({ summary: 'Listar todos os templates' })
     @ApiResponse({ status: 200, description: 'Lista de templates', type: [TemplateResponseDto] })
     async findAll(): Promise<TemplateResponseDto[]> {
@@ -99,6 +109,7 @@ export class TemplateController {
     }
 
     @Get('active')
+    @Roles('ADMIN', 'MANAGER', 'USER')
     @ApiOperation({ summary: 'Listar templates ativos' })
     @ApiResponse({
         status: 200,
@@ -110,6 +121,7 @@ export class TemplateController {
     }
 
     @Get('latest')
+    @Roles('ADMIN', 'MANAGER', 'USER')
     @ApiOperation({ summary: 'Buscar a versão mais recente do template' })
     @ApiResponse({ status: 200, description: 'Template mais recente', type: TemplateResponseDto })
     @ApiResponse({ status: 404, description: 'Nenhum template ativo encontrado' })
@@ -118,6 +130,7 @@ export class TemplateController {
     }
 
     @Get(':id')
+    @Roles('ADMIN', 'MANAGER', 'USER')
     @ApiOperation({ summary: 'Buscar um template por ID' })
     @ApiResponse({ status: 200, description: 'Template encontrado', type: TemplateResponseDto })
     @ApiResponse({ status: 404, description: 'Template não encontrado' })
@@ -126,6 +139,7 @@ export class TemplateController {
     }
 
     @Patch(':id')
+    @Roles('ADMIN', 'MANAGER')
     @ApiOperation({ summary: 'Atualizar um template' })
     @ApiResponse({
         status: 200,
@@ -142,6 +156,7 @@ export class TemplateController {
     }
 
     @Delete(':id')
+    @Roles('ADMIN')
     @ApiOperation({ summary: 'Remover um template' })
     @ApiResponse({ status: 200, description: 'Template removido com sucesso' })
     @ApiResponse({ status: 404, description: 'Template não encontrado' })

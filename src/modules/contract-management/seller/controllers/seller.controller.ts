@@ -1,17 +1,23 @@
 /* eslint-disable prettier/prettier */
-import { Controller, Get, Post, Body, Patch, Param, Delete, HttpStatus } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
+import { Controller, Get, Post, Body, Patch, Param, Delete, HttpStatus, UseGuards } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { SellerService } from '../services/seller.service';
 import { CreateSellerDto } from '../dtos/create-seller.dto';
 import { UpdateSellerDto } from '../dtos/update-seller.dto';
 import { SellerResponseDto } from '../dtos/seller-response.dto';
+import { AuthGuard } from '../../../security/guards/auth.guard';
+import { RoleGuard } from '../../../security/guards/role.guard';
+import { Roles } from '../../../security/decorators/roles.decorator';
 
 @ApiTags('vendedores')
+@ApiBearerAuth()
+@UseGuards(AuthGuard, RoleGuard)
 @Controller('sellers')
 export class SellerController {
     constructor(private readonly sellerService: SellerService) {}
 
     @Post()
+    @Roles('ADMIN', 'MANAGER')
     @ApiOperation({ summary: 'Criar um novo vendedor' })
     @ApiResponse({
         status: 201,
@@ -25,6 +31,7 @@ export class SellerController {
     }
 
     @Get()
+    @Roles('ADMIN', 'MANAGER', 'USER')
     @ApiOperation({ summary: 'Listar todos os vendedores' })
     @ApiResponse({ status: 200, description: 'Lista de vendedores', type: [SellerResponseDto] })
     async findAll(): Promise<SellerResponseDto[]> {
@@ -32,6 +39,7 @@ export class SellerController {
     }
 
     @Get(':id')
+    @Roles('ADMIN', 'MANAGER', 'USER')
     @ApiOperation({ summary: 'Buscar um vendedor por ID' })
     @ApiResponse({ status: 200, description: 'Vendedor encontrado', type: SellerResponseDto })
     @ApiResponse({ status: 404, description: 'Vendedor não encontrado' })
@@ -40,6 +48,7 @@ export class SellerController {
     }
 
     @Patch(':id')
+    @Roles('ADMIN', 'MANAGER')
     @ApiOperation({ summary: 'Atualizar um vendedor' })
     @ApiResponse({
         status: 200,
@@ -56,6 +65,7 @@ export class SellerController {
     }
 
     @Delete(':id')
+    @Roles('ADMIN')
     @ApiOperation({ summary: 'Remover um vendedor' })
     @ApiResponse({ status: 200, description: 'Vendedor removido com sucesso' })
     @ApiResponse({ status: 404, description: 'Vendedor não encontrado' })
@@ -64,6 +74,7 @@ export class SellerController {
     }
 
     @Post('update-all-from-brasil-api')
+    @Roles('ADMIN', 'MANAGER')
     @ApiOperation({ summary: 'Atualiza dados de todos os vendedores usando a Brasil API' })
     @ApiResponse({
         status: HttpStatus.OK,
@@ -90,6 +101,7 @@ export class SellerController {
     }
 
     @Post(':id/update-from-brasil-api')
+    @Roles('ADMIN', 'MANAGER')
     @ApiOperation({ summary: 'Atualiza dados de um vendedor específico usando a Brasil API' })
     @ApiResponse({
         status: HttpStatus.OK,

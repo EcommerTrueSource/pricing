@@ -8,17 +8,24 @@ import {
     HttpStatus,
     Delete,
     NotFoundException,
+    UseGuards,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiParam } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse, ApiParam, ApiBearerAuth } from '@nestjs/swagger';
 import { AutentiqueService } from '../services/autentique.service';
 import { CreateDocumentDto } from '../dtos/create-document.dto';
+import { AuthGuard } from '../../../security/guards/auth.guard';
+import { RoleGuard } from '../../../security/guards/role.guard';
+import { Roles } from '../../../security/decorators/roles.decorator';
 
 @ApiTags('Autentique')
+@ApiBearerAuth()
+@UseGuards(AuthGuard, RoleGuard)
 @Controller('autentique')
 export class AutentiqueController {
     constructor(private readonly autentiqueService: AutentiqueService) {}
 
     @Get('documents/seller/:cnpj')
+    @Roles('ADMIN', 'MANAGER', 'USER')
     @ApiOperation({
         summary: 'Busca documentos por CNPJ do vendedor',
         description:
@@ -71,6 +78,7 @@ export class AutentiqueController {
     }
 
     @Get('documents/:documentId')
+    @Roles('ADMIN', 'MANAGER', 'USER')
     @ApiOperation({ summary: 'Busca um documento por ID' })
     @ApiParam({ name: 'documentId', description: 'ID do documento no Autentique' })
     @ApiResponse({
@@ -108,6 +116,7 @@ export class AutentiqueController {
     }
 
     @Post('documents')
+    @Roles('ADMIN', 'MANAGER')
     @HttpCode(HttpStatus.CREATED)
     @ApiOperation({ summary: 'Cria um novo documento' })
     @ApiResponse({
@@ -162,6 +171,7 @@ export class AutentiqueController {
     }
 
     @Post('sync/contracts')
+    @Roles('ADMIN', 'MANAGER')
     @ApiOperation({ summary: 'Sincroniza os contratos com a Autentique' })
     @ApiResponse({ status: 200, description: 'Sincronização concluída com sucesso' })
     async syncContracts() {
@@ -169,6 +179,7 @@ export class AutentiqueController {
     }
 
     @Delete('documents/:documentId')
+    @Roles('ADMIN')
     @ApiOperation({
         summary: 'Deleta um documento do Autentique',
         description:

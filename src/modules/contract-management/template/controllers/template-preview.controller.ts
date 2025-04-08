@@ -1,9 +1,14 @@
-import { Controller, Get, HttpException, HttpStatus, Logger } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
+import { Controller, Get, HttpException, HttpStatus, Logger, UseGuards } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { ConfigService } from '@nestjs/config';
 import { GoogleDocsService } from '../services/google-docs.service';
+import { AuthGuard } from '../../../security/guards/auth.guard';
+import { RoleGuard } from '../../../security/guards/role.guard';
+import { Roles } from '../../../security/decorators/roles.decorator';
 
 @ApiTags('templates')
+@ApiBearerAuth()
+@UseGuards(AuthGuard, RoleGuard)
 @Controller('templates/preview')
 export class TemplatePreviewController {
     private readonly logger = new Logger(TemplatePreviewController.name);
@@ -21,6 +26,7 @@ export class TemplatePreviewController {
     }
 
     @Get('mock')
+    @Roles('ADMIN', 'MANAGER')
     @ApiOperation({ summary: 'Visualizar template com dados mockados' })
     @ApiResponse({ status: 200, description: 'URL para preview do template com dados mockados' })
     @ApiResponse({ status: 400, description: 'Erro ao gerar preview mockado' })
@@ -65,6 +71,7 @@ export class TemplatePreviewController {
     }
 
     @Get('download')
+    @Roles('ADMIN', 'MANAGER')
     @ApiOperation({ summary: 'Baixar template ativo em PDF' })
     @ApiResponse({ status: 200, description: 'URL para download do PDF' })
     @ApiResponse({ status: 400, description: 'Erro ao gerar URL de download' })

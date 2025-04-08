@@ -2,6 +2,7 @@ import { Body, Controller, Logger, Post, HttpCode, HttpStatus } from '@nestjs/co
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { WebhookService } from '../services/webhook.service';
 import { WebhookDto } from '../dtos/webhook.dto';
+import { Public } from '../../../security/decorators/public.decorator';
 
 @ApiTags('Webhook')
 @Controller('webhook')
@@ -11,6 +12,7 @@ export class WebhookController {
     constructor(private readonly webhookService: WebhookService) {}
 
     @Post('contract')
+    @Public()
     @HttpCode(HttpStatus.CREATED)
     @ApiOperation({ summary: 'Recebe webhook para criação de contrato' })
     @ApiResponse({
@@ -37,6 +39,7 @@ export class WebhookController {
     }
 
     @Post('pedido-gerado-mercos')
+    @Public()
     @HttpCode(HttpStatus.CREATED)
     @ApiOperation({ summary: 'Recebe webhook do Mercos quando um pedido é gerado' })
     @ApiResponse({

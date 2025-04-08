@@ -10,11 +10,14 @@ import {
 import { InviteService } from '../services/invite.service';
 import { CreateInviteDto } from '../dtos/create-invite.dto';
 import { AcceptInviteDto } from '../dtos/accept-invite.dto';
-import { AuthGuard } from '@nestjs/passport';
+import { AuthGuard } from '../guards/auth.guard';
 import { Roles } from '../decorators/roles.decorator';
 import { RoleGuard } from '../guards/role.guard';
+import { Public } from '../decorators/public.decorator';
 
 @ApiTags('Convites')
+@ApiBearerAuth()
+@UseGuards(AuthGuard, RoleGuard)
 @Controller('invites')
 export class InviteController {
     private readonly logger = new Logger(InviteController.name);
@@ -22,9 +25,7 @@ export class InviteController {
     constructor(private readonly inviteService: InviteService) {}
 
     @Post()
-    @UseGuards(AuthGuard('jwt'), RoleGuard)
     @Roles('ADMIN')
-    @ApiBearerAuth()
     @ApiOperation({ summary: 'Criar novo convite (apenas ADMIN)' })
     @ApiBody({ type: CreateInviteDto })
     @ApiResponse({
@@ -48,9 +49,7 @@ export class InviteController {
     }
 
     @Get()
-    @UseGuards(AuthGuard('jwt'), RoleGuard)
     @Roles('ADMIN')
-    @ApiBearerAuth()
     @ApiOperation({ summary: 'Listar todos os convites ativos (apenas ADMIN)' })
     @ApiResponse({
         status: 200,
@@ -81,6 +80,7 @@ export class InviteController {
     }
 
     @Get('validate/:token')
+    @Public()
     @ApiOperation({ summary: 'Validar um token de convite (público)' })
     @ApiParam({ name: 'token', description: 'Token do convite' })
     @ApiResponse({
@@ -101,6 +101,7 @@ export class InviteController {
     }
 
     @Post('accept')
+    @Public()
     @ApiOperation({ summary: 'Aceitar um convite e criar conta (público)' })
     @ApiBody({ type: AcceptInviteDto })
     @ApiResponse({
@@ -123,9 +124,7 @@ export class InviteController {
     }
 
     @Delete(':id')
-    @UseGuards(AuthGuard('jwt'), RoleGuard)
     @Roles('ADMIN')
-    @ApiBearerAuth()
     @ApiOperation({ summary: 'Cancelar um convite (apenas ADMIN)' })
     @ApiParam({ name: 'id', description: 'ID do convite' })
     @ApiResponse({

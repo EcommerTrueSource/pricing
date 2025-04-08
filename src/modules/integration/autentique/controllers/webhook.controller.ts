@@ -12,10 +12,12 @@ import { WebhookService } from '../services/webhook.service';
 import { AutentiqueWebhookEventDto } from '../dtos/webhook-event.dto';
 import { AutentiqueWebhookRateLimit } from '../decorators/rate-limit.decorator';
 import { AutentiqueWebhookRateLimitInterceptor } from '../interceptors/rate-limit.interceptor';
+import { Public } from '../../../security/decorators/public.decorator';
 
 @ApiTags('Autentique Webhook')
 @Controller('autentique/webhook')
 @UseInterceptors(AutentiqueWebhookRateLimitInterceptor)
+@Public()
 export class WebhookController {
     private readonly logger = new Logger(WebhookController.name);
 
