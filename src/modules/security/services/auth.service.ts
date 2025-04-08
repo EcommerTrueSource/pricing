@@ -2,6 +2,7 @@ import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../../../shared/services/prisma.service';
 import * as bcrypt from 'bcrypt';
+import { ConfigService } from '@nestjs/config';
 
 @Injectable()
 export class AuthService {
@@ -10,6 +11,7 @@ export class AuthService {
     constructor(
         private readonly jwtService: JwtService,
         private readonly prisma: PrismaService,
+        private readonly configService: ConfigService,
     ) {}
 
     /**
@@ -85,6 +87,7 @@ export class AuthService {
             sub: user.id || user.userId || '1',
             email: user.email,
             roles: user.roles,
+            env: this.configService.get<string>('NODE_ENV') || 'development',
         };
         this.logger.log(`Gerando token JWT para usuário: ${user.email}`);
 
@@ -93,6 +96,8 @@ export class AuthService {
             userId: payload.sub,
             email: user.email,
             roles: user.roles,
+            environment: payload.env,
+            timestamp: new Date().toISOString(),
         });
 
         return {
@@ -176,7 +181,7 @@ export class AuthService {
                         first_name: profile.firstName,
                         last_name: profile.lastName,
                         picture: profile.picture,
-                        roles: invite.roles || ['USER'], // Usa as roles do convite ou USER como padrão
+                        roles: invite.roles || ['USER'],
                         provider: 'google',
                         provider_id: profile.email,
                         active: true,
@@ -226,7 +231,6 @@ export class AuthService {
 
     /**
      * Registra eventos de segurança importantes para auditoria
-     * Esta função pode ser expandida para salvar os logs em um sistema dedicado
      */
     private logSecurityEvent(event: string, data: any): void {
         try {
@@ -235,7 +239,7 @@ export class AuthService {
                 timestamp,
                 event,
                 data,
-                ip: 'N/A', // Em um cenário real, o IP seria capturado do request
+                ip: 'N/A',
             };
 
             this.logger.log(`[SECURITY_AUDIT] ${event}`, logEntry);

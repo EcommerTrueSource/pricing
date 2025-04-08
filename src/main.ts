@@ -7,6 +7,7 @@ import helmet from 'helmet';
 import * as cookieParser from 'cookie-parser';
 import * as dotenv from 'dotenv';
 import * as path from 'path';
+import { Logger } from '@nestjs/common';
 // import * as csurf from 'csurf';
 
 // Carrega as variáveis de ambiente do caminho especificado na variável DOTENV_PATH ou usa .env.local por padrão
@@ -15,12 +16,27 @@ console.log(`Carregando variáveis de ambiente de: ${envPath}`);
 dotenv.config({ path: envPath });
 
 async function bootstrap() {
+    const logger = new Logger('Bootstrap');
     console.log('Iniciando aplicação...');
     const app = await NestFactory.create(AppModule);
 
-    // Adiciona middleware de segurança
+    // Configuração do prefixo global
+    app.setGlobalPrefix('api', {
+        exclude: ['health'],
+    });
+    logger.log('Prefix global configurado para: /api');
+
+    // Configuração do CORS
+    app.enableCors({
+        origin: process.env.FRONTEND_URL || 'http://localhost:4200',
+        credentials: true,
+    });
+    logger.log('CORS configurado');
+
+    // Middleware de segurança
     app.use(helmet());
     app.use(cookieParser());
+    logger.log('Middleware de segurança configurado');
 
     // Configuração do Swagger
     const config = new DocumentBuilder()
@@ -63,7 +79,7 @@ async function bootstrap() {
         .build();
 
     const document = SwaggerModule.createDocument(app, config);
-    SwaggerModule.setup('api', app, document, {
+    SwaggerModule.setup('api/docs', app, document, {
         customSiteTitle: 'API de Contratos - Documentação',
         customCss: '.swagger-ui .topbar { display: none }',
         swaggerOptions: {
@@ -75,6 +91,7 @@ async function bootstrap() {
             },
         },
     });
+    logger.log('Swagger configurado em: /api/docs');
 
     // Configuração de validação global
     app.useGlobalPipes(
@@ -84,24 +101,13 @@ async function bootstrap() {
             forbidNonWhitelisted: true,
         }),
     );
-
-    // Configuração de CORS
-    app.enableCors({
-        origin: [
-            'http://localhost:4200',
-            'http://localhost:3000',
-            process.env.FRONTEND_URL,
-        ].filter(Boolean),
-        methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
-        credentials: true,
-    });
+    logger.log('ValidationPipe configurado');
 
     // Proteção CSRF - Ativar em rotas não-API que usam formulários
     // Esta proteção é desabilitada para APIs REST puras, mas é importante para apps com sessão
     // app.use(csurf({ cookie: true }));
 
     // Prefixo global para todas as rotas
-    app.setGlobalPrefix('api');
     console.log('ATENÇÃO: Todas as rotas estão com o prefixo "/api"');
     console.log('Exemplos de rotas corretas:');
     console.log('- Para autenticação com Google: /api/auth/google');
@@ -110,7 +116,8 @@ async function bootstrap() {
 
     const port = process.env.PORT || 3000;
     await app.listen(port);
-    console.log(`🚀 Aplicação rodando na porta ${port}`);
+    logger.log(`🚀 Aplicação rodando na porta ${port}`);
+    logger.log(`URL base: http://localhost:${port}/api`);
 
     // Log para debug - URL de callback do Google
     const googleCallbackUrl = process.env.GOOGLE_CALLBACK_URL || 'não configurado';

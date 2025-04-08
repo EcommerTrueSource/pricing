@@ -1,23 +1,27 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
 import { Strategy, VerifyCallback } from 'passport-google-oauth20';
+import { ConfigService } from '@nestjs/config';
 
 @Injectable()
 export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
     private readonly logger = new Logger(GoogleStrategy.name);
 
-    constructor() {
+    constructor(private readonly configService: ConfigService) {
         super({
-            clientID: process.env.GOOGLE_CLIENT_ID,
-            clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+            clientID: configService.get<string>('GOOGLE_CLIENT_ID'),
+            clientSecret: configService.get<string>('GOOGLE_CLIENT_SECRET'),
             callbackURL:
-                process.env.GOOGLE_CALLBACK_URL || 'http://localhost:3000/api/auth/google/callback',
+                configService.get<string>('GOOGLE_CALLBACK_URL') ||
+                'http://localhost:3000/api/auth/google/callback',
             scope: ['email', 'profile'],
         });
 
-        // Log para depuração da URL de callback
         this.logger.log(
-            `Google OAuth configurado com callback URL: ${this.hideCredentialsInUrl(process.env.GOOGLE_CALLBACK_URL || 'http://localhost:3000/api/auth/google/callback')}`,
+            `Google OAuth configurado com callback URL: ${this.hideCredentialsInUrl(
+                configService.get<string>('GOOGLE_CALLBACK_URL') ||
+                    'http://localhost:3000/api/auth/google/callback',
+            )}`,
         );
     }
 
@@ -27,31 +31,41 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
         profile: any,
         done: VerifyCallback,
     ): Promise<any> {
-        const { name, emails, photos } = profile;
+        try {
+            const { name, emails, photos } = profile;
 
-        this.logger.log(`Usuário autenticado via Google: ${emails[0].value}`);
+            this.logger.debug('Processando autenticação Google', {
+                email: emails[0].value,
+                name: `${name.givenName} ${name.familyName}`,
+            });
 
-        const user = {
-            email: emails[0].value,
-            firstName: name.givenName,
-            lastName: name.familyName,
-            picture: photos[0].value,
-            accessToken,
-            // Por padrão, usuários do Google recebem a role USER
-            // Isso pode ser modificado depois baseado em regras de negócio
-            roles: ['USER'],
-        };
+            const user = {
+                email: emails[0].value,
+                firstName: name.givenName,
+                lastName: name.familyName,
+                picture: photos[0].value,
+                accessToken,
+                roles: ['USER'],
+            };
 
-        done(null, user);
+            this.logger.log(`Usuário autenticado via Google: ${user.email}`);
+            done(null, user);
+        } catch (error) {
+            this.logger.error('Erro ao processar autenticação Google:', {
+                error: error.message,
+                stack: error.stack,
+            });
+            done(error, null);
+        }
     }
 
-    // Método para mascarar credenciais em URLs para exibição segura em logs
     private hideCredentialsInUrl(url: string): string {
         if (!url) return 'URL não definida';
         try {
             const urlObj = new URL(url);
             return `${urlObj.protocol}//${urlObj.hostname}${urlObj.pathname}`;
         } catch (e) {
+            this.logger.warn('URL de callback inválida:', e.message);
             return 'URL inválida';
         }
     }
