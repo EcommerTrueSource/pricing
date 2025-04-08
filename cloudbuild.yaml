@@ -25,6 +25,18 @@ steps:
   - '--memory=1Gi'
   - '--cpu=1'
 
+# Deletar job de migração anterior se existir
+- name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+  entrypoint: gcloud
+  args:
+  - 'run'
+  - 'jobs'
+  - 'delete'
+  - 'pricing-migrate'
+  - '--region=southamerica-east1'
+  - '--quiet'
+  allowFailure: true
+
 # Criar job de migração do Prisma
 - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
   entrypoint: gcloud
@@ -32,28 +44,18 @@ steps:
   - 'run'
   - 'jobs'
   - 'create'
-  - 'pricing-migrate-${SHORT_SHA}'
+  - 'pricing-migrate'
   - '--image=southamerica-east1-docker.pkg.dev/${PROJECT_ID}/pricing-repo/pricing:${SHORT_SHA}'
-  - '--set-secrets=/secrets/.env.local=env_pricing:latest,/secrets/database_url=database_url_pricing:latest'
-  - '--update-env-vars=NODE_ENV=production'
-  - '--set-cloudsql-instances=${PROJECT_ID}:southamerica-east1:pricing'
-  - '--command=sh,-c,echo "[Debug] Iniciando processo de migração..." && \
-     echo "[Debug] Verificando diretório atual:" && pwd && \
-     echo "[Debug] Listando arquivos:" && ls -la && \
-     echo "[Debug] Verificando secrets:" && ls -la /secrets/ && \
-     echo "[Debug] Verificando variáveis:" && env | grep -v "KEY\|SECRET\|PASSWORD" && \
-     echo "[Debug] Verificando conexão com banco:" && nc -zv localhost 5432 && \
-     echo "[Debug] Configurando DATABASE_URL..." && export DATABASE_URL=$(cat /secrets/database_url) && \
-     echo "[Debug] Gerando cliente Prisma..." && npx prisma generate && \
-     echo "[Debug] Executando migração..." && npx prisma migrate deploy'
   - '--region=southamerica-east1'
   - '--tasks=1'
   - '--memory=512Mi'
   - '--cpu=1'
   - '--max-retries=3'
-  - '--service-account=pricing-contract@${PROJECT_ID}.iam.gserviceaccount.com'
-  - '--timeout=600s'
   - '--task-timeout=600s'
+  - '--set-secrets=/secrets/database_url=database_url_pricing:latest'
+  - '--set-cloudsql-instances=${PROJECT_ID}:southamerica-east1:pricing'
+  - '--service-account=pricing-contract@${PROJECT_ID}.iam.gserviceaccount.com'
+  - '--command=npx,prisma,migrate,deploy'
 
 # Executar job de migração
 - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
@@ -62,7 +64,7 @@ steps:
   - 'run'
   - 'jobs'
   - 'execute'
-  - 'pricing-migrate-${SHORT_SHA}'
+  - 'pricing-migrate'
   - '--region=southamerica-east1'
   - '--wait'
 
