@@ -34,10 +34,18 @@ steps:
   - 'create'
   - 'pricing-migrate-${SHORT_SHA}'
   - '--image=southamerica-east1-docker.pkg.dev/${PROJECT_ID}/pricing-repo/pricing:${SHORT_SHA}'
-  - '--set-secrets=/secrets/.env.local=env_pricing:latest'
+  - '--set-secrets=/secrets/.env.local=env_pricing:latest,/secrets/database_url=database_url_pricing:latest'
   - '--update-env-vars=NODE_ENV=production'
   - '--set-cloudsql-instances=${PROJECT_ID}:southamerica-east1:pricing'
-  - '--command=sh,-c,echo "[Verificação] Iniciando processo de migração..." && ls -la /secrets/.env.local && echo "[Verificação] Carregando variáveis de ambiente..." && set -a && source /secrets/.env.local && set +a && echo "[Verificação] Variáveis carregadas" && echo "[Verificação] DATABASE_URL=$$DATABASE_URL" && echo "[Verificação] Executando migração..." && npx prisma migrate deploy'
+  - '--command=sh,-c,echo "[Debug] Iniciando processo de migração..." && \
+     echo "[Debug] Verificando diretório atual:" && pwd && \
+     echo "[Debug] Listando arquivos:" && ls -la && \
+     echo "[Debug] Verificando secrets:" && ls -la /secrets/ && \
+     echo "[Debug] Verificando variáveis:" && env | grep -v "KEY\|SECRET\|PASSWORD" && \
+     echo "[Debug] Verificando conexão com banco:" && nc -zv localhost 5432 && \
+     echo "[Debug] Configurando DATABASE_URL..." && export DATABASE_URL=$(cat /secrets/database_url) && \
+     echo "[Debug] Gerando cliente Prisma..." && npx prisma generate && \
+     echo "[Debug] Executando migração..." && npx prisma migrate deploy'
   - '--region=southamerica-east1'
   - '--tasks=1'
   - '--memory=512Mi'

@@ -8,20 +8,23 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
     private readonly logger = new Logger(GoogleStrategy.name);
 
     constructor(private readonly configService: ConfigService) {
+        const callbackUrl = configService.get<string>('GOOGLE_CALLBACK_URL');
+        const clientId = configService.get<string>('GOOGLE_CLIENT_ID');
+        const clientSecret = configService.get<string>('GOOGLE_CLIENT_SECRET');
+
+        if (!callbackUrl || !clientId || !clientSecret) {
+            throw new Error('Configurações do Google OAuth não encontradas');
+        }
+
         super({
-            clientID: configService.get<string>('GOOGLE_CLIENT_ID'),
-            clientSecret: configService.get<string>('GOOGLE_CLIENT_SECRET'),
-            callbackURL:
-                configService.get<string>('GOOGLE_CALLBACK_URL') ||
-                'http://localhost:3000/api/auth/google/callback',
+            clientID: clientId,
+            clientSecret: clientSecret,
+            callbackURL: callbackUrl,
             scope: ['email', 'profile'],
         });
 
         this.logger.log(
-            `Google OAuth configurado com callback URL: ${this.hideCredentialsInUrl(
-                configService.get<string>('GOOGLE_CALLBACK_URL') ||
-                    'http://localhost:3000/api/auth/google/callback',
-            )}`,
+            `Google OAuth configurado com callback URL: ${this.hideCredentialsInUrl(callbackUrl)}`,
         );
     }
 

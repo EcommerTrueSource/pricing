@@ -39,7 +39,20 @@ async function bootstrap() {
     logger.log('CORS configurado');
 
     // Middleware de segurança
-    app.use(helmet());
+    app.use(
+        helmet({
+            contentSecurityPolicy: {
+                directives: {
+                    defaultSrc: ["'self'"],
+                    connectSrc: ["'self'", 'https://accounts.google.com'],
+                    frameSrc: ["'self'", 'https://accounts.google.com'],
+                    imgSrc: ["'self'", 'https:', 'data:'],
+                    scriptSrc: ["'self'", "'unsafe-inline'", 'https://accounts.google.com'],
+                    styleSrc: ["'self'", "'unsafe-inline'"],
+                },
+            },
+        })
+    );
     app.use(cookieParser());
     logger.log('Middleware de segurança configurado');
 
