@@ -34,13 +34,20 @@ steps:
     gcloud secrets versions access latest --secret=database_url_pricing > /workspace/database_url.txt
 
 # Executar migração do Prisma usando a URL do banco do secret
-- name: 'southamerica-east1-docker.pkg.dev/${PROJECT_ID}/pricing-repo/pricing:${SHORT_SHA}'
+- name: 'node:18-alpine'
   entrypoint: sh
   args:
   - '-c'
-  - 'export DATABASE_URL=$(cat /workspace/database_url.txt) && npx prisma migrate deploy'
-  env:
-  - 'NODE_ENV=production'
+  - |
+    echo "Configurando permissões..."
+    mkdir -p /tmp/.npm-global
+    export NPM_CONFIG_PREFIX=/tmp/.npm-global
+    export PATH=$NPM_CONFIG_PREFIX/bin:$PATH
+    export DATABASE_URL=$(cat /workspace/database_url.txt)
+    echo "Instalando Prisma CLI..."
+    npm install -g prisma --no-fund --no-audit --quiet
+    echo "Executando migração..."
+    cd /workspace && prisma migrate deploy
 
 # Verificar se a aplicação está saudável
 - name: 'gcr.io/cloud-builders/curl'
