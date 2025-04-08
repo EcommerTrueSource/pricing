@@ -37,7 +37,7 @@ steps:
   - '--set-secrets=/secrets/.env.local=pricing-env:latest'
   - '--update-env-vars=DOTENV_PATH=/secrets/.env.local'
   - '--set-cloudsql-instances=${PROJECT_ID}:southamerica-east1:pricing'
-  - '--command=npx,prisma,migrate,deploy'
+  - '--command=sh,-c,cp /secrets/.env.local .env && npx prisma migrate deploy'
   - '--region=southamerica-east1'
   - '--tasks=1'
   - '--service-account=pricing-contract@${PROJECT_ID}.iam.gserviceaccount.com'
