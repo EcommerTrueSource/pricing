@@ -55,7 +55,7 @@ steps:
   - '--set-secrets=DATABASE_URL=database_url_pricing:latest'
   - '--set-cloudsql-instances=${PROJECT_ID}:southamerica-east1:pricing'
   - '--service-account=pricing-contract@${PROJECT_ID}.iam.gserviceaccount.com'
-  - '--command=sh,-c,echo "Iniciando migração..." && echo "DATABASE_URL: $DATABASE_URL" && npx prisma migrate deploy'
+  - '--command=sh,-c,echo "Iniciando migração..." && echo "DATABASE_URL: $${DATABASE_URL}" && npx prisma migrate deploy'
 
 # Executar job de migração
 - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
