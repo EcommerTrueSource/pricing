@@ -15,6 +15,7 @@ console.log(`Carregando variáveis de ambiente de: ${envPath}`);
 dotenv.config({ path: envPath });
 
 async function bootstrap() {
+    console.log('Iniciando aplicação...');
     const app = await NestFactory.create(AppModule);
 
     // Adiciona middleware de segurança
@@ -101,9 +102,23 @@ async function bootstrap() {
 
     // Prefixo global para todas as rotas
     app.setGlobalPrefix('api');
+    console.log('ATENÇÃO: Todas as rotas estão com o prefixo "/api"');
+    console.log('Exemplos de rotas corretas:');
+    console.log('- Para autenticação com Google: /api/auth/google');
+    console.log('- Para callback do Google: /api/auth/google/callback');
+    console.log('- Para login com credenciais: /api/auth/login');
 
     const port = process.env.PORT || 3000;
     await app.listen(port);
     console.log(`🚀 Aplicação rodando na porta ${port}`);
+
+    // Log para debug - URL de callback do Google
+    const googleCallbackUrl = process.env.GOOGLE_CALLBACK_URL || 'não configurado';
+    console.log(`GOOGLE_CALLBACK_URL configurado como: ${googleCallbackUrl}`);
+    console.log('Certifique-se de que esta URL está autorizada no console do Google Cloud');
+
+    // Log do endereço base da aplicação
+    const appUrl = await app.getUrl();
+    console.log(`Endereço base da aplicação: ${appUrl}`);
 }
 bootstrap();

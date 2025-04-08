@@ -62,11 +62,15 @@ export class EnvironmentService implements OnModuleInit {
     private adjustGoogleCallbackUrl() {
         const currentUrl = process.env.GOOGLE_CALLBACK_URL;
 
-        if (currentUrl?.includes('localhost')) {
+        if (currentUrl?.includes('localhost') || !currentUrl) {
+            // Importante: incluir o prefixo /api/ no caminho conforme configurado no main.ts
             const newUrl = `${this.serviceUrl}/api/auth/google/callback`;
             process.env.GOOGLE_CALLBACK_URL = newUrl;
+            this.logger.log(`GOOGLE_CALLBACK_URL ajustada para ${this.maskUrl(newUrl)}`);
+
+            // Registra a URL para depuração
             this.logger.log(
-                `GOOGLE_CALLBACK_URL ajustada de ${this.maskUrl(currentUrl)} para ${this.maskUrl(newUrl)}`,
+                `IMPORTANTE: Certifique-se de que esta URL está autorizada no console do Google Cloud: ${this.maskUrl(newUrl)}`,
             );
         }
     }

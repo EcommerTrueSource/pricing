@@ -14,6 +14,11 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
                 process.env.GOOGLE_CALLBACK_URL || 'http://localhost:3000/api/auth/google/callback',
             scope: ['email', 'profile'],
         });
+
+        // Log para depuração da URL de callback
+        this.logger.log(
+            `Google OAuth configurado com callback URL: ${this.hideCredentialsInUrl(process.env.GOOGLE_CALLBACK_URL || 'http://localhost:3000/api/auth/google/callback')}`,
+        );
     }
 
     async validate(
@@ -38,5 +43,16 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
         };
 
         done(null, user);
+    }
+
+    // Método para mascarar credenciais em URLs para exibição segura em logs
+    private hideCredentialsInUrl(url: string): string {
+        if (!url) return 'URL não definida';
+        try {
+            const urlObj = new URL(url);
+            return `${urlObj.protocol}//${urlObj.hostname}${urlObj.pathname}`;
+        } catch (e) {
+            return 'URL inválida';
+        }
     }
 }
