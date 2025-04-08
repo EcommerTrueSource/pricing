@@ -52,10 +52,10 @@ steps:
   - '--cpu=1'
   - '--max-retries=3'
   - '--task-timeout=600s'
-  - '--set-secrets=/secrets/database_url=database_url_pricing:latest'
+  - '--set-secrets=DATABASE_URL=database_url_pricing:latest'
   - '--set-cloudsql-instances=${PROJECT_ID}:southamerica-east1:pricing'
   - '--service-account=pricing-contract@${PROJECT_ID}.iam.gserviceaccount.com'
-  - '--command=sh,-c,npx prisma generate && npx prisma migrate deploy'
+  - '--command=sh,-c,echo "Iniciando migração..." && echo "DATABASE_URL: $DATABASE_URL" && npx prisma migrate deploy'
 
 # Executar job de migração
 - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
