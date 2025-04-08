@@ -8,13 +8,17 @@ import { SellerResponseDto } from '../dtos/seller-response.dto';
 import { AuthGuard } from '../../../security/guards/auth.guard';
 import { RoleGuard } from '../../../security/guards/role.guard';
 import { Roles } from '../../../security/decorators/roles.decorator';
+import { CnpjIntegrationService } from '../../../integration/cnpj/services/cnpj-integration.service';
 
 @ApiTags('vendedores')
 @ApiBearerAuth()
 @UseGuards(AuthGuard, RoleGuard)
 @Controller('sellers')
 export class SellerController {
-    constructor(private readonly sellerService: SellerService) {}
+    constructor(
+        private readonly sellerService: SellerService,
+        private readonly cnpjIntegrationService: CnpjIntegrationService,
+    ) {}
 
     @Post()
     @Roles('ADMIN', 'MANAGER')
@@ -110,5 +114,37 @@ export class SellerController {
     })
     async updateSellerDataFromBrasilApi(@Param('id') id: string) {
         return this.sellerService.updateFromBrasilApi(id);
+    }
+
+    @Get('cnpj/:cnpj')
+    @Roles('ADMIN', 'MANAGER', 'USER')
+    @ApiOperation({
+        summary: 'Consultar dados de um CNPJ via integração',
+        description: 'Consulta os dados de um CNPJ utilizando o CNPJWS com fallback para Brasil API'
+    })
+    @ApiResponse({
+        status: 200,
+        description: 'Dados do CNPJ encontrados',
+        schema: {
+            properties: {
+                razaoSocial: { type: 'string' },
+                endereco: {
+                    type: 'object',
+                    properties: {
+                        logradouro: { type: 'string' },
+                        numero: { type: 'string' },
+                        complemento: { type: 'string' },
+                        bairro: { type: 'string' },
+                        municipio: { type: 'string' },
+                        uf: { type: 'string' },
+                        cep: { type: 'string' }
+                    }
+                }
+            }
+        }
+    })
+    @ApiResponse({ status: 404, description: 'CNPJ não encontrado' })
+    async findByCnpj(@Param('cnpj') cnpj: string) {
+        return this.cnpjIntegrationService.getSellerData(cnpj);
     }
 }
