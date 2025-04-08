@@ -9,6 +9,7 @@ import { SecurityModule } from './modules/security/security.module';
 import { AutentiqueModule } from './modules/integration/autentique/autentique.module';
 import { IntegrationModule } from './modules/integration/integration.module';
 import { EventEmitterModule } from '@nestjs/event-emitter';
+import { EnvironmentModule } from './shared/modules/environment.module';
 
 @Module({
     imports: [
@@ -39,6 +40,8 @@ import { EventEmitterModule } from '@nestjs/event-emitter';
             // Verbosidade para debug
             verboseMemoryLeak: true,
         }),
+        // Importação do novo módulo de ambiente, que fará os ajustes automáticos de variáveis
+        EnvironmentModule,
         PrismaModule,
         HttpModule,
         SecurityModule,
