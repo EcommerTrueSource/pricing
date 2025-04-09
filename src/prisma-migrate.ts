@@ -1,6 +1,13 @@
 import { PrismaClient } from '@prisma/client';
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import * as dotenv from 'dotenv';
+import * as path from 'path';
+
+// Carregar variáveis de ambiente antes de iniciar a migração
+const envPath = process.env.DOTENV_PATH || path.resolve(process.cwd(), '.env.local');
+console.log(`Carregando variáveis de ambiente de: ${envPath}`);
+dotenv.config({ path: envPath });
 
 const execAsync = promisify(exec);
 
