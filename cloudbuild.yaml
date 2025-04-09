@@ -52,7 +52,22 @@ steps:
         exit 1
       fi
 
+# Também taggar como latest após health check bem-sucedido
+- name: 'gcr.io/cloud-builders/docker'
+  id: 'tag-latest'
+  waitFor: ['health-check']
+  args: ['tag',
+         'southamerica-east1-docker.pkg.dev/${PROJECT_ID}/pricing-repo/pricing:${SHORT_SHA}',
+         'southamerica-east1-docker.pkg.dev/${PROJECT_ID}/pricing-repo/pricing:latest']
+
+# Push da versão latest
+- name: 'gcr.io/cloud-builders/docker'
+  id: 'push-latest'
+  waitFor: ['tag-latest']
+  args: ['push', 'southamerica-east1-docker.pkg.dev/${PROJECT_ID}/pricing-repo/pricing:latest']
+
 images:
 - 'southamerica-east1-docker.pkg.dev/${PROJECT_ID}/pricing-repo/pricing:${SHORT_SHA}'
+- 'southamerica-east1-docker.pkg.dev/${PROJECT_ID}/pricing-repo/pricing:latest'
 
 timeout: '1800s'
