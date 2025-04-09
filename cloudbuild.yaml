@@ -36,6 +36,9 @@ steps:
 
       echo "==== INICIANDO PROCESSO DE MIGRAÇÃO DO BANCO DE DADOS ===="
 
+      # Arquivo para armazenar o PID do Cloud SQL Proxy
+      PROXY_PID_FILE="/tmp/cloud_sql_proxy.pid"
+
       # Instalar dependências necessárias
       echo "Instalando dependências..."
       apt-get update -qq && apt-get install -y -qq gcc python3-dev wget curl
@@ -48,19 +51,31 @@ steps:
       # Criar diretório para o socket do Cloud SQL Proxy
       mkdir -p /cloudsql
 
+      # Função para limpar proxy ao sair
+      cleanup_proxy() {
+        if [ -f "$PROXY_PID_FILE" ]; then
+          echo "Encerrando Cloud SQL Proxy..."
+          kill $(cat "$PROXY_PID_FILE")
+          rm "$PROXY_PID_FILE"
+        fi
+      }
+
+      # Garantir que o proxy será encerrado mesmo se o script falhar
+      trap cleanup_proxy EXIT
+
       # Iniciar o Cloud SQL Proxy em background
       echo "Iniciando Cloud SQL Proxy..."
       ./cloud_sql_proxy -instances=${PROJECT_ID}:southamerica-east1:pricing=tcp:5432 &
-      SQL_PROXY_PROCESS_ID=$!
+      echo $! > "$PROXY_PID_FILE"
 
       # Verificar se o proxy iniciou corretamente
       sleep 5
-      if ! ps -p $SQL_PROXY_PROCESS_ID > /dev/null; then
+      if ! ps -p $(cat "$PROXY_PID_FILE") > /dev/null; then
         echo "ERRO: Cloud SQL Proxy falhou ao iniciar"
         exit 1
       fi
 
-      echo "Cloud SQL Proxy iniciado com sucesso (PID: $SQL_PROXY_PROCESS_ID)"
+      echo "Cloud SQL Proxy iniciado com sucesso (PID: $(cat "$PROXY_PID_FILE"))"
 
       # Instalar Node.js e Prisma
       echo "Configurando ambiente Node.js..."
@@ -84,7 +99,6 @@ steps:
 
       if [ -z "$DATABASE_URL" ]; then
         echo "ERRO: Não foi possível recuperar o secret database_url_pricing"
-        kill $SQL_PROXY_PROCESS_ID
         exit 1
       fi
 
@@ -92,10 +106,9 @@ steps:
       echo "Verificando conexão com o banco de dados..."
       npx prisma db pull --schema=./prisma/schema.prisma || {
         echo "ERRO: Não foi possível conectar ao banco de dados. Verificando status do proxy:"
-        ps -p $SQL_PROXY_PROCESS_ID
+        ps -p $(cat "$PROXY_PID_FILE")
         echo "Tentando executar um diagnóstico de rede:"
         netstat -tuln | grep 5432
-        kill $SQL_PROXY_PROCESS_ID
         exit 1
       }
 
@@ -107,17 +120,12 @@ steps:
         echo "✅ Migração completada com sucesso"
       else
         echo "❌ Erro na migração do banco de dados"
-        kill $SQL_PROXY_PROCESS_ID
         exit 1
       fi
 
-      # Encerrar o Cloud SQL Proxy corretamente
-      echo "Encerrando Cloud SQL Proxy..."
-      kill $SQL_PROXY_PROCESS_ID
-
       echo "==== PROCESSO DE MIGRAÇÃO CONCLUÍDO ===="
 
-## Verificar se a aplicação está saudável (com mais detalhes)
+# Verificar se a aplicação está saudável (com mais detalhes)
 - name: 'gcr.io/cloud-builders/curl'
   id: 'health-check'
   entrypoint: bash
