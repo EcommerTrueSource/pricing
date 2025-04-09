@@ -25,7 +25,7 @@ steps:
   - '--memory=1Gi'
   - '--cpu=1'
 
-# Executar migração do Prisma diretamente no Cloud Build
+# Executar migração do Prisma diretamente no Cloud Build 
 - name: 'gcr.io/cloud-builders/gcloud'
   id: 'migrate'
   entrypoint: bash
