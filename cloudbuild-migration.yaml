@@ -32,8 +32,39 @@ steps:
       # Registrar início com timestamp para facilitar rastreabilidade
       echo "[$(date -u '+%Y-%m-%d %H:%M:%S UTC')] Iniciando job de migração Prisma..."
 
-      # Executar job usando a API oficial do GCP
-      job_id=$(gcloud run jobs execute pricing-migration-job --region=southamerica-east1 --wait=false --format="value(metadata.name)")
+      # Pequena pausa para garantir que o job está registrado completamente
+      echo "Aguardando registro do job..."
+      sleep 5
+
+      # Verificar se o job existe antes de executar
+      job_check=$(gcloud run jobs describe pricing-migration-job --region=southamerica-east1 --format="value(name)" 2>/dev/null)
+      if [ -z "$job_check" ]; then
+        echo "❌ Job 'pricing-migration-job' não encontrado na região southamerica-east1"
+        exit 1
+      fi
+
+      # Executar o job com --async para garantir que temos o ID correto
+      echo "Executando job de migração..."
+      execution_output=$(gcloud run jobs execute pricing-migration-job --region=southamerica-east1 --async --format=json 2>&1)
+
+      # Extrair o ID usando duas abordagens possíveis para maior robustez
+      job_id=$(echo "$execution_output" | grep -o '"name": "[^"]*"' | head -1 | cut -d'"' -f4 2>/dev/null)
+
+      # Tentar uma segunda abordagem se a primeira falhar (formato de saída pode variar)
+      if [ -z "$job_id" ]; then
+        job_id=$(echo "$execution_output" | grep -o 'Started job execution \[.*\]' | sed 's/Started job execution \[\(.*\)\]/\1/' 2>/dev/null)
+      fi
+
+      # Verificar se o job_id foi capturado corretamente
+      if [ -z "$job_id" ]; then
+        echo "❌ Falha ao obter ID da execução"
+        echo "Saída do comando:"
+        echo "$execution_output"
+        # Executar novamente para debug
+        gcloud run jobs execute pricing-migration-job --region=southamerica-east1 --async --verbosity=debug
+        exit 1
+      fi
+
       echo "ID do job: $job_id"
 
       # Link para console (facilita diagnóstico)
@@ -44,36 +75,47 @@ steps:
       max_attempts=30
       attempt=1
 
+      # Pequena pausa para garantir que o job iniciou
+      sleep 5
+
       while [ $attempt -le $max_attempts ]; do
         echo "[$(date -u '+%Y-%m-%d %H:%M:%S UTC')] Verificando status (tentativa $attempt/$max_attempts)..."
 
-        execution_json=$(gcloud run jobs executions describe $job_id --region=southamerica-east1 --format=json)
-        status=$(echo "$execution_json" | grep -o '"condition": "[^"]*"' | head -1 | cut -d'"' -f4)
+        # Usar comando adequado para verificar status
+        status_output=$(gcloud run jobs executions describe $job_id --region=southamerica-east1 --format=json 2>/dev/null)
+        if [ $? -ne 0 ]; then
+          echo "⚠️ Aguardando execução iniciar ou permissões serem propagadas..."
+          sleep 15
+          attempt=$((attempt + 1))
+          continue
+        fi
+
+        # Tentar vários formatos de status para robustez
+        status=""
+        for pattern in '"condition": "[^"]*"' '"status": "[^"]*"' '"state": "[^"]*"'; do
+          found=$(echo "$status_output" | grep -o "$pattern" | head -1 | cut -d'"' -f4)
+          if [ -n "$found" ]; then
+            status="$found"
+            break
+          fi
+        done
 
         echo "Status: $status"
 
         # Logs formatados conforme recomendação GCP
         echo "Logs recentes:"
-        gcloud logging read "resource.type=cloud_run_job AND resource.labels.job_name=pricing-migration-job AND resource.labels.location=southamerica-east1 AND labels.\"run.googleapis.com/execution_name\"=\"$job_id\"" --limit=10 --format="table(timestamp.datetime,severity,textPayload)" 2>/dev/null || echo "Logs indisponíveis no momento"
+        gcloud logging read "resource.type=cloud_run_job AND resource.labels.job_name=pricing-migration-job AND resource.labels.location=southamerica-east1 AND labels.\"run.googleapis.com/execution_name\"=\"$job_id\"" --limit=5 --format="table(timestamp.datetime,severity,textPayload)" 2>/dev/null || echo "Logs indisponíveis no momento"
 
-        if [ "$status" = "Completed" ]; then
+        # Verificar status em vários formatos possíveis
+        if [[ "$status" =~ ^(Completed|SUCCEEDED|Success|COMPLETE)$ ]]; then
           echo "✅ [$(date -u '+%Y-%m-%d %H:%M:%S UTC')] Migração concluída com sucesso!"
-
-          # Registrar metadados para auditoria
-          echo "Detalhes da execução:"
-          echo "$execution_json" | grep -E '"startTime"|"completionTime"'
-
           exit 0
-        elif [ "$status" = "Failed" ]; then
+        elif [[ "$status" =~ ^(Failed|FAILED|Error|FAILED_PRECONDITION)$ ]]; then
           echo "❌ [$(date -u '+%Y-%m-%d %H:%M:%S UTC')] Migração falhou!"
 
-          # Detalhes do erro para diagnóstico
-          echo "Detalhes da falha:"
-          echo "$execution_json" | grep -E '"message"|"reason"|"conditions"'
-
-          # Exibir logs de erro conforme padrão GCP
+          # Exibir logs de erro
           echo "Logs de erro:"
-          gcloud logging read "resource.type=cloud_run_job AND resource.labels.job_name=pricing-migration-job AND resource.labels.location=southamerica-east1 AND labels.\"run.googleapis.com/execution_name\"=\"$job_id\" AND severity>=ERROR" --limit=20 --format="table(timestamp.datetime,severity,textPayload)"
+          gcloud logging read "resource.type=cloud_run_job AND resource.labels.job_name=pricing-migration-job AND resource.labels.location=southamerica-east1 AND labels.\"run.googleapis.com/execution_name\"=\"$job_id\" AND severity>=ERROR" --limit=20 --format="table(timestamp.datetime,severity,textPayload)" 2>/dev/null || echo "Não foi possível obter logs de erro"
 
           echo "Para diagnóstico completo, acesse: $console_url"
           exit 1
