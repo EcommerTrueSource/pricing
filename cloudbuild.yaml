@@ -32,40 +32,116 @@ steps:
   args:
     - '-c'
     - |
-      echo "Iniciando migração diretamente via Cloud SQL proxy..."
-      apt-get update -qq && apt-get install -y -qq gcc python3-dev
+      set -e  # Falhar imediatamente se qualquer comando retornar erro
+
+      echo "==== INICIANDO PROCESSO DE MIGRAÇÃO DO BANCO DE DADOS ===="
+
+      # Instalar dependências necessárias
+      echo "Instalando dependências..."
+      apt-get update -qq && apt-get install -y -qq gcc python3-dev wget curl
 
       # Instalar o Cloud SQL Proxy
-      wget https://dl.google.com/cloudsql/cloud_sql_proxy.linux.amd64 -O cloud_sql_proxy
+      echo "Baixando e configurando Cloud SQL Proxy..."
+      wget -q https://dl.google.com/cloudsql/cloud_sql_proxy.linux.amd64 -O cloud_sql_proxy
       chmod +x cloud_sql_proxy
 
-      # Iniciar o Cloud SQL Proxy em background
+      # Criar diretório para o socket do Cloud SQL Proxy
       mkdir -p /cloudsql
+
+      # Iniciar o Cloud SQL Proxy em background
+      echo "Iniciando Cloud SQL Proxy..."
       ./cloud_sql_proxy -instances=${PROJECT_ID}:southamerica-east1:pricing=tcp:5432 &
       PROXY_PID=$!
 
-      # Dar tempo para o proxy iniciar
+      # Verificar se o proxy iniciou corretamente
       sleep 5
+      if ! ps -p $PROXY_PID > /dev/null; then
+        echo "ERRO: Cloud SQL Proxy falhou ao iniciar"
+        exit 1
+      fi
+
+      echo "Cloud SQL Proxy iniciado com sucesso (PID: $PROXY_PID)"
 
       # Instalar Node.js e Prisma
+      echo "Configurando ambiente Node.js..."
       curl -fsSL https://deb.nodesource.com/setup_18.x | bash -
       apt-get install -y nodejs
+
+      echo "Versão do Node.js instalada:"
+      node --version
+
+      echo "Instalando Prisma CLI..."
       npm install -g prisma
 
       # Instalar dependências do projeto
+      echo "Instalando dependências do projeto..."
       cd /workspace
       npm ci
 
+      # Acessar o secret para a URL do banco de dados
+      echo "Recuperando segredo da URL do banco de dados..."
+      DATABASE_URL=$(gcloud secrets versions access latest --secret="database_url_pricing")
+
+      if [ -z "$DATABASE_URL" ]; then
+        echo "ERRO: Não foi possível recuperar o secret database_url_pricing"
+        kill $PROXY_PID
+        exit 1
+      fi
+
+      # Verificar conexão com o banco antes de prosseguir
+      echo "Verificando conexão com o banco de dados..."
+      npx prisma db pull --schema=./prisma/schema.prisma || {
+        echo "ERRO: Não foi possível conectar ao banco de dados. Verificando status do proxy:"
+        ps -p $PROXY_PID
+        echo "Tentando executar um diagnóstico de rede:"
+        netstat -tuln | grep 5432
+        kill $PROXY_PID
+        exit 1
+      }
+
       # Executar migração
       echo "Executando migração do Prisma..."
-      DATABASE_URL="postgresql://pricing-system:True%40%23012987@localhost:5432/contract-management" npx prisma migrate deploy
+      DATABASE_URL="$DATABASE_URL" npx prisma migrate deploy
 
-      # Matar o proxy quando terminar
+      if [ $? -eq 0 ]; then
+        echo "✅ Migração completada com sucesso"
+      else
+        echo "❌ Erro na migração do banco de dados"
+        kill $PROXY_PID
+        exit 1
+      fi
+
+      # Encerrar o Cloud SQL Proxy corretamente
+      echo "Encerrando Cloud SQL Proxy..."
       kill $PROXY_PID
 
-# Verificar se a aplicação está saudável
+      echo "==== PROCESSO DE MIGRAÇÃO CONCLUÍDO ===="
+
+# Verificar se a aplicação está saudável (com mais detalhes)
 - name: 'gcr.io/cloud-builders/curl'
-  args: ['--retry', '5', '--retry-delay', '10', '-s', '-o', '/dev/null', '-w', '%{http_code}', 'https://pricing-460815276546.southamerica-east1.run.app/api/health']
+  id: 'health-check'
+  entrypoint: bash
+  args:
+    - '-c'
+    - |
+      echo "Aguardando aplicação ficar disponível..."
+      # Adicionar um tempo para a aplicação iniciar completamente
+      sleep 30
+
+      # Verificar o health check com mais detalhes
+      echo "Verificando health check da aplicação..."
+      HTTP_STATUS=$(curl --retry 5 --retry-delay 10 -s -o response.txt -w "%{http_code}" https://pricing-460815276546.southamerica-east1.run.app/api/health)
+
+      if [ $HTTP_STATUS -eq 200 ]; then
+        echo "✅ Aplicação está saudável! Status HTTP: $HTTP_STATUS"
+        cat response.txt
+        exit 0
+      else
+        echo "❌ Falha no health check! Status HTTP: $HTTP_STATUS"
+        echo "Resposta recebida:"
+        cat response.txt
+        exit 1
+      fi
 
 images:
 - 'southamerica-east1-docker.pkg.dev/${PROJECT_ID}/pricing-repo/pricing:${SHORT_SHA}'
