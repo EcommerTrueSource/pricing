@@ -36,46 +36,41 @@ steps:
 
       echo "==== INICIANDO PROCESSO DE MIGRAÇÃO DO BANCO DE DADOS ===="
 
-      # Arquivo para armazenar o PID do Cloud SQL Proxy
-      PROXY_PID_FILE="/tmp/cloud_sql_proxy.pid"
-
       # Instalar dependências necessárias
       echo "Instalando dependências..."
       apt-get update -qq && apt-get install -y -qq gcc python3-dev wget curl
 
       # Instalar o Cloud SQL Proxy
       echo "Baixando e configurando Cloud SQL Proxy..."
-      wget -q https://dl.google.com/cloudsql/cloud_sql_proxy.linux.amd64 -O cloud_sql_proxy
-      chmod +x cloud_sql_proxy
+      wget -q https://dl.google.com/cloudsql/cloud_sql_proxy.linux.amd64 -O /tmp/cloud_sql_proxy
+      chmod +x /tmp/cloud_sql_proxy
 
       # Criar diretório para o socket do Cloud SQL Proxy
       mkdir -p /cloudsql
 
-      # Função para limpar proxy ao sair
-      cleanup_proxy() {
-        if [ -f "$PROXY_PID_FILE" ]; then
-          echo "Encerrando Cloud SQL Proxy..."
-          kill $(cat "$PROXY_PID_FILE")
-          rm "$PROXY_PID_FILE"
-        fi
-      }
-
-      # Garantir que o proxy será encerrado mesmo se o script falhar
-      trap cleanup_proxy EXIT
-
-      # Iniciar o Cloud SQL Proxy em background
+      # Iniciar o Cloud SQL Proxy em background sem usar variável
       echo "Iniciando Cloud SQL Proxy..."
-      ./cloud_sql_proxy -instances=${PROJECT_ID}:southamerica-east1:pricing=tcp:5432 &
-      echo $! > "$PROXY_PID_FILE"
+      /tmp/cloud_sql_proxy -instances=${PROJECT_ID}:southamerica-east1:pricing=tcp:5432 &
+
+      # Salvar PID diretamente em um arquivo sem usar variável
+      echo $! > /tmp/proxy.pid
 
       # Verificar se o proxy iniciou corretamente
       sleep 5
-      if ! ps -p $(cat "$PROXY_PID_FILE") > /dev/null; then
+      if ! ps -p $(cat /tmp/proxy.pid) > /dev/null; then
         echo "ERRO: Cloud SQL Proxy falhou ao iniciar"
         exit 1
       fi
 
-      echo "Cloud SQL Proxy iniciado com sucesso (PID: $(cat "$PROXY_PID_FILE"))"
+      echo "Cloud SQL Proxy iniciado com sucesso (PID: $(cat /tmp/proxy.pid))"
+
+      # Garantir limpeza no final com uma função que não usa variáveis
+      finish() {
+        echo "Encerrando Cloud SQL Proxy..."
+        kill $(cat /tmp/proxy.pid) || true
+        rm -f /tmp/proxy.pid
+      }
+      trap finish EXIT
 
       # Instalar Node.js e Prisma
       echo "Configurando ambiente Node.js..."
@@ -93,35 +88,42 @@ steps:
       cd /workspace
       npm ci
 
-      # Acessar o secret para a URL do banco de dados
+      # Acessar o secret para a URL do banco de dados (diretamente, sem variáveis intermediárias)
       echo "Recuperando segredo da URL do banco de dados..."
-      DATABASE_URL=$(gcloud secrets versions access latest --secret="database_url_pricing")
 
-      if [ -z "$DATABASE_URL" ]; then
+      # Verificar conexão com o banco antes de prosseguir
+      echo "Verificando conexão com o banco de dados..."
+      gcloud secrets versions access latest --secret="database_url_pricing" > /tmp/db_url
+
+      # Verificar se o arquivo existe e tem conteúdo
+      if [ ! -s /tmp/db_url ]; then
         echo "ERRO: Não foi possível recuperar o secret database_url_pricing"
         exit 1
       fi
 
-      # Verificar conexão com o banco antes de prosseguir
-      echo "Verificando conexão com o banco de dados..."
-      npx prisma db pull --schema=./prisma/schema.prisma || {
+      # Usar o arquivo diretamente sem variáveis
+      cat /tmp/db_url | npx prisma db pull --schema=./prisma/schema.prisma || {
         echo "ERRO: Não foi possível conectar ao banco de dados. Verificando status do proxy:"
-        ps -p $(cat "$PROXY_PID_FILE")
+        ps -p $(cat /tmp/proxy.pid) || true
         echo "Tentando executar um diagnóstico de rede:"
-        netstat -tuln | grep 5432
+        netstat -tuln | grep 5432 || true
         exit 1
       }
 
-      # Executar migração
+      # Executar migração usando o arquivo diretamente
       echo "Executando migração do Prisma..."
-      DATABASE_URL="$DATABASE_URL" npx prisma migrate deploy
+      cat /tmp/db_url | DATABASE_URL=$(cat) npx prisma migrate deploy
 
-      if [ $? -eq 0 ]; then
+      migration_status=$?
+      if [ $migration_status -eq 0 ]; then
         echo "✅ Migração completada com sucesso"
       else
         echo "❌ Erro na migração do banco de dados"
         exit 1
       fi
+
+      # Limpar arquivos temporários
+      rm -f /tmp/db_url
 
       echo "==== PROCESSO DE MIGRAÇÃO CONCLUÍDO ===="
 
@@ -138,16 +140,17 @@ steps:
 
       # Verificar o health check com mais detalhes
       echo "Verificando health check da aplicação..."
-      HTTP_STATUS=$(curl --retry 5 --retry-delay 10 -s -o response.txt -w "%{http_code}" https://pricing-460815276546.southamerica-east1.run.app/api/health)
+      curl --retry 5 --retry-delay 10 -s -o /tmp/response.txt -w "%{http_code}" https://pricing-460815276546.southamerica-east1.run.app/api/health > /tmp/http_code
 
-      if [ $HTTP_STATUS -eq 200 ]; then
-        echo "✅ Aplicação está saudável! Status HTTP: $HTTP_STATUS"
-        cat response.txt
+      # Verificar o código HTTP diretamente do arquivo
+      if [ "$(cat /tmp/http_code)" = "200" ]; then
+        echo "✅ Aplicação está saudável! Status HTTP: $(cat /tmp/http_code)"
+        cat /tmp/response.txt
         exit 0
       else
-        echo "❌ Falha no health check! Status HTTP: $HTTP_STATUS"
+        echo "❌ Falha no health check! Status HTTP: $(cat /tmp/http_code)"
         echo "Resposta recebida:"
-        cat response.txt
+        cat /tmp/response.txt
         exit 1
       fi
 
