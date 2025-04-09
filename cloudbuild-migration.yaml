@@ -55,7 +55,7 @@ steps:
     - '--set-secrets=/secrets/.env.local=env_pricing:latest,DATABASE_URL=database_url_pricing:8'
     - '--update-env-vars=DOTENV_PATH=/secrets/.env.local,PRISMA_MIGRATE=true,DEBUG=prisma:*,NODE_OPTIONS=--max-old-space-size=1536'
     - '--command=bash'
-    - '--args=-c "cd /app && echo DATABASE_URL: $DATABASE_URL | sed \"s/:[^:]*@/:*****@/g\" && npx prisma -v && npx prisma migrate deploy --create-only && npx prisma migrate deploy"'
+    - '--args=-c "cd /app && echo \"Verificando configuração do Prisma...\" && npx prisma -v && npx prisma migrate deploy --create-only && echo \"Executando migração...\" && npx prisma migrate deploy"'
   waitFor: ['verificar-imagem']
 
 # Executar o job e capturar logs
@@ -67,7 +67,8 @@ steps:
     - |
       echo "Iniciando job de migração e capturando logs detalhados..."
 
-      # Variáveis para armazenar execução e status
+      # Executar o job e capturar o ID
+      echo "Executando o job de migração..."
       job_id=$(gcloud run jobs execute pricing-migration-job --region=southamerica-east1 --format="value(metadata.name)")
       echo "ID do job: $job_id"
 
@@ -75,35 +76,47 @@ steps:
       echo "Aguardando o job iniciar..."
       sleep 10
 
-      # Verificar status e exibir logs em tempo real
-      echo "Obtendo logs do job..."
-      for i in {1..20}; do
-        echo "Verificando status e logs (tentativa $i/20)..."
+      # Função para obter timestamp formatado para queries
+      get_timestamp() {
+        # Obter data atual em formato RFC3339
+        date -u +"%Y-%m-%dT%H:%M:%SZ"
+      }
 
-        # Obter o status atual do job
-        status=$(gcloud run jobs executions describe $job_id --region=southamerica-east1 --format="value(status)")
+      # Capturar logs e status
+      start_time=$(get_timestamp)
+      echo "Hora inicial de logs: $start_time"
+
+      # Verificar status e exibir logs em loop
+      for i in {1..20}; do
+        echo ""
+        echo "==== Verificando status da execução (tentativa $i/20) ===="
+
+        # Obter status atual
+        status=$(gcloud run jobs executions describe "$job_id" --region=southamerica-east1 --format="value(status)" 2>/dev/null || echo "DESCONHECIDO")
         echo "Status atual: $status"
 
-        # Exibir logs do job
-        gcloud logging read "resource.type=cloud_run_job AND resource.labels.job_name=pricing-migration-job AND resource.labels.location=southamerica-east1 AND logName:stdout AND timestamp>$(date -u -v-10M +%Y-%m-%dT%H:%M:%SZ)" --order=asc --format="table(timestamp.dateTime, textPayload)" --limit=50
+        # Exibir logs recentes
+        echo "Exibindo logs recentes:"
+        gcloud logging read "resource.type=cloud_run_job AND resource.labels.job_name=pricing-migration-job AND resource.labels.location=southamerica-east1 AND timestamp>=\"$start_time\"" --limit=20 --format="table(timestamp.datetime,severity,textPayload)" 2>/dev/null || echo "Não foi possível obter logs"
 
-        # Se o job terminou, sair do loop
-        if [[ "$status" == "SUCCEEDED" ]]; then
+        # Verificar se o job terminou
+        if [ "$status" = "SUCCEEDED" ]; then
           echo "✅ Job concluído com sucesso!"
           exit 0
-        elif [[ "$status" == "FAILED" ]]; then
-          echo "❌ Job falhou! Detalhes:"
-          gcloud run jobs executions describe $job_id --region=southamerica-east1
-          echo "Exibindo logs de erro:"
-          gcloud logging read "resource.type=cloud_run_job AND resource.labels.job_name=pricing-migration-job AND resource.labels.location=southamerica-east1 AND logName:stderr AND timestamp>$(date -u -v-30M +%Y-%m-%dT%H:%M:%SZ)" --order=asc --format="table(textPayload)" --limit=100
+        elif [ "$status" = "FAILED" ]; then
+          echo "❌ Job falhou!"
+          echo "Detalhes da execução:"
+          gcloud run jobs executions describe "$job_id" --region=southamerica-east1 2>/dev/null || echo "Não foi possível obter detalhes"
           exit 1
         fi
 
-        # Aguardar antes da próxima verificação
+        # Atualizar timestamp para próxima consulta
+        start_time=$(get_timestamp)
         sleep 30
       done
 
-      echo "❌ Timeout na execução do job"
+      echo "⚠️ Timeout ao aguardar conclusão do job."
+      echo "Verifique os logs manualmente no Console do Cloud Run."
       exit 1
   waitFor: ['executar-migracoes']
   timeout: '1800s'  # 30 minutos de timeout
