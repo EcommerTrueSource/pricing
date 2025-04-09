@@ -22,7 +22,7 @@ async function bootstrap() {
 
     // Configuração do prefixo global
     app.setGlobalPrefix('api', {
-        exclude: ['health'],
+        exclude: [],
     });
     logger.log('Prefix global configurado para: /api');
 
