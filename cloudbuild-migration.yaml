@@ -1,7 +1,7 @@
 steps:
-# Executar migrações do Prisma no Cloud Run Jobs com passos de diagnóstico
-- name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
-  id: 'executar-migracoes'
+# Executar migrações do Prisma no Cloud Run Jobs
+- name: 'gcr.io/google.com/cloudsdktool/cloud-sdk:latest'
+  id: 'configurar-job-migracao'
   entrypoint: 'gcloud'
   args:
     - 'run'
@@ -9,62 +9,73 @@ steps:
     - 'deploy'
     - 'pricing-migration-job'
     - '--region=southamerica-east1'
-    - '--image=southamerica-east1-docker.pkg.dev/${PROJECT_ID}/pricing-repo/pricing:latest'
+    - '--image=southamerica-east1-docker.pkg.dev/${PROJECT_ID}/pricing-repo/pricing:${COMMIT_SHA}'
     - '--memory=2Gi'
     - '--cpu=2'
     - '--max-retries=1'
     - '--task-timeout=30m'
     - '--set-cloudsql-instances=${PROJECT_ID}:southamerica-east1:pricing'
     - '--service-account=pricing-contract@${PROJECT_ID}.iam.gserviceaccount.com'
-    - '--set-secrets=/secrets/.env.local=env_pricing:latest,DATABASE_URL=database_url_pricing:8'
+    - '--set-secrets=/secrets/.env.local=env_pricing:latest,DATABASE_URL=database_url_pricing:latest'
     - '--update-env-vars=DOTENV_PATH=/secrets/.env.local,PRISMA_MIGRATE=true,DEBUG=prisma:*,NODE_OPTIONS=--max-old-space-size=1536'
-    - '--command=bash'
-    - '--args=-c "cd /app && echo \"==== DIAGNÓSTICO AMBIENTE ====\" && pwd && ls -la && echo \"==== VARIÁVEIS AMBIENTE ====\" && printenv | grep -E \"DATABASE_URL|DOTENV_PATH|PRISMA\" && echo \"==== TESTANDO CONEXÃO BD ====\" && if [ -f \"node_modules/.bin/prisma\" ]; then node_modules/.bin/prisma migrate deploy; else npx prisma migrate deploy; fi"'
+    - '--command=/bin/sh'
+    - '--args=-c "cd /app && echo \"== DIAGNÓSTICO ==\" && pwd && ls -la && echo \"== AMBIENTE ==\" && printenv | grep -E \"DATABASE_URL|DOTENV_PATH|PRISMA\" && echo \"== MIGRAÇÃO ==\" && npx prisma migrate deploy"'
+  timeout: '300s'
 
-# Executar o job e capturar logs com melhor tratamento de erro
-- name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
-  id: 'iniciar-migracao'
+# Executar o job e monitorar resultados
+- name: 'gcr.io/google.com/cloudsdktool/cloud-sdk:latest'
+  id: 'executar-monitorar-migracao'
   entrypoint: 'bash'
   args:
     - '-c'
     - |
-      echo "Iniciando job de migração..."
-      job_id=$(gcloud run jobs execute pricing-migration-job --region=southamerica-east1 --format="value(metadata.name)")
+      # Registrar início com timestamp para facilitar rastreabilidade
+      echo "[$(date -u '+%Y-%m-%d %H:%M:%S UTC')] Iniciando job de migração Prisma..."
+
+      # Executar job usando a API oficial do GCP
+      job_id=$(gcloud run jobs execute pricing-migration-job --region=southamerica-east1 --wait=false --format="value(metadata.name)")
       echo "ID do job: $job_id"
 
-      echo "Aguardando execução do job..."
+      # Link para console (facilita diagnóstico)
+      console_url="https://console.cloud.google.com/run/jobs/executions/details/southamerica-east1/$job_id?project=${PROJECT_ID}"
+      echo "Console URL: $console_url"
+
+      echo "Monitorando execução com timeout de 15 minutos..."
       max_attempts=30
       attempt=1
 
       while [ $attempt -le $max_attempts ]; do
-        echo "Verificando status (tentativa $attempt/$max_attempts)..."
+        echo "[$(date -u '+%Y-%m-%d %H:%M:%S UTC')] Verificando status (tentativa $attempt/$max_attempts)..."
 
-        status=$(gcloud run jobs executions describe $job_id --region=southamerica-east1 --format="value(status)" 2>/dev/null || echo "PENDING")
+        execution_json=$(gcloud run jobs executions describe $job_id --region=southamerica-east1 --format=json)
+        status=$(echo "$execution_json" | grep -o '"condition": "[^"]*"' | head -1 | cut -d'"' -f4)
+
         echo "Status: $status"
 
-        # Mostrar logs para ajudar no diagnóstico
+        # Logs formatados conforme recomendação GCP
         echo "Logs recentes:"
-        gcloud logging read "resource.type=cloud_run_job AND resource.labels.job_name=pricing-migration-job AND resource.labels.location=southamerica-east1 AND labels.\"run.googleapis.com/execution_name\"=\"$job_id\"" --limit=10 --format="table(timestamp.datetime,severity,textPayload)" 2>/dev/null || echo "Não foi possível obter logs"
+        gcloud logging read "resource.type=cloud_run_job AND resource.labels.job_name=pricing-migration-job AND resource.labels.location=southamerica-east1 AND labels.\"run.googleapis.com/execution_name\"=\"$job_id\"" --limit=10 --format="table(timestamp.datetime,severity,textPayload)" 2>/dev/null || echo "Logs indisponíveis no momento"
 
-        if [ "$status" = "SUCCEEDED" ]; then
-          echo "✅ Migração concluída com sucesso!"
+        if [ "$status" = "Completed" ]; then
+          echo "✅ [$(date -u '+%Y-%m-%d %H:%M:%S UTC')] Migração concluída com sucesso!"
+
+          # Registrar metadados para auditoria
+          echo "Detalhes da execução:"
+          echo "$execution_json" | grep -E '"startTime"|"completionTime"'
+
           exit 0
-        elif [ "$status" = "FAILED" ]; then
-          echo "❌ Migração falhou!"
+        elif [ "$status" = "Failed" ]; then
+          echo "❌ [$(date -u '+%Y-%m-%d %H:%M:%S UTC')] Migração falhou!"
 
-          # Obter mais detalhes sobre o erro
-          gcloud run jobs executions describe $job_id --region=southamerica-east1 --format="value(status)" 2>/dev/null || echo "Não foi possível obter detalhes da execução"
+          # Detalhes do erro para diagnóstico
+          echo "Detalhes da falha:"
+          echo "$execution_json" | grep -E '"message"|"reason"|"conditions"'
 
-          # Exibir logs de erro detalhados
-          echo "Logs de erro detalhados:"
-          gcloud logging read "resource.type=cloud_run_job AND resource.labels.job_name=pricing-migration-job AND resource.labels.location=southamerica-east1 AND labels.\"run.googleapis.com/execution_name\"=\"$job_id\" AND severity>=ERROR" --limit=50 --format="table(timestamp.datetime,severity,textPayload)"
+          # Exibir logs de erro conforme padrão GCP
+          echo "Logs de erro:"
+          gcloud logging read "resource.type=cloud_run_job AND resource.labels.job_name=pricing-migration-job AND resource.labels.location=southamerica-east1 AND labels.\"run.googleapis.com/execution_name\"=\"$job_id\" AND severity>=ERROR" --limit=20 --format="table(timestamp.datetime,severity,textPayload)"
 
-          # Encerrar com falha mas fornecer informações para diagnóstico
-          echo "Para verificar logs completos, acesse:"
-          echo "https://console.cloud.google.com/run/jobs/executions/details/southamerica-east1/$job_id/logs?project=${PROJECT_ID}"
-          exit 1
-        elif [ "$status" = "CANCELLED" ]; then
-          echo "❌ Migração foi cancelada."
+          echo "Para diagnóstico completo, acesse: $console_url"
           exit 1
         fi
 
@@ -72,12 +83,19 @@ steps:
         sleep 10
       done
 
-      echo "❌ Timeout ao esperar pela migração."
+      echo "❌ [$(date -u '+%Y-%m-%d %H:%M:%S UTC')] Timeout ao esperar pela migração"
+      echo "Você pode verificar o status final em: $console_url"
       exit 1
-  waitFor: ['executar-migracoes']
-  timeout: '1800s'  # 30 minutos
+  waitFor: ['configurar-job-migracao']
+  timeout: '1200s'  # 20 minutos
 
-timeout: '2000s'  # Timeout global
+# Configuração global
+timeout: '1800s'  # 30 minutos para todo o build
+logsBucket: 'gs://${PROJECT_ID}_cloudbuild_logs'
 
 options:
   logging: CLOUD_LOGGING_ONLY
+  machineType: 'E2_HIGHCPU_8'  # Máquina com mais recursos para build eficiente
+  dynamic_substitutions: true  # Suporte a substituições dinâmicas
+  env:
+    - 'COMMIT_SHA=$COMMIT_SHA'  # Garante que o COMMIT_SHA esteja disponível
