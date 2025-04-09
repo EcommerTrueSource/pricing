@@ -1,39 +1,108 @@
 steps:
-# Aguardar tempo suficiente para o deploy finalizar
+# Verificar de forma dinâmica se a build do cloudbuild.yaml foi concluída
 - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
-  id: 'aguardar-deploy'
+  id: 'verificar-status-deploy'
   entrypoint: 'bash'
   args:
     - '-c'
     - |
-      echo "Aguardando tempo suficiente para o deploy finalizar (10 minutos)..."
+      #!/bin/bash
+      set -e
+
+      # Obter o SHA do commit atual
+      CURRENT_COMMIT=$(git rev-parse HEAD)
+      echo "Commit atual: $CURRENT_COMMIT"
+
+      # Função para formatar timestamp
+      format_time() {
+        date -u "+%Y-%m-%dT%H:%M:%SZ"
+      }
+
+      # Timestamp atual menos 2 horas (para ter uma janela razoável)
+      START_TIME=$(date -u -d "-2 hours" "+%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date -u -v-2H "+%Y-%m-%dT%H:%M:%SZ")
+      echo "Buscando builds desde: $START_TIME"
+
+      # Função para verificar se a build do cloudbuild.yaml para este commit foi concluída
+      check_build_status() {
+        echo "Verificando status da build principal para o commit $CURRENT_COMMIT..."
+
+        # Encontrar builds recentes para o commit atual
+        builds=$(gcloud builds list --filter="substitutions.COMMIT_SHA=$CURRENT_COMMIT OR substitutions.SHORT_SHA=$CURRENT_COMMIT OR source.repo_source.commit_sha=$CURRENT_COMMIT" --limit=5 --format="value(id,status)")
+
+        if [ -z "$builds" ]; then
+          echo "Nenhuma build encontrada para este commit."
+          return 1
+        fi
+
+        echo "Builds encontradas para este commit:"
+        echo "$builds"
+
+        # Verificar se alguma build foi bem-sucedida
+        if echo "$builds" | grep -q "SUCCESS"; then
+          echo "✅ Build principal concluída com sucesso!"
+          return 0
+        else
+          echo "Build principal ainda não concluída com sucesso."
+          return 1
+        fi
+      }
+
+      # Função para verificar se a imagem latest está atualizada
+      check_image_status() {
+        echo "Verificando status da imagem latest..."
+
+        # Verificar se a imagem latest existe
+        if ! gcloud container images describe southamerica-east1-docker.pkg.dev/${PROJECT_ID}/pricing-repo/pricing:latest > /dev/null 2>&1; then
+          echo "❌ Imagem latest não encontrada."
+          return 1
+        fi
+
+        # Obter timestamp da imagem latest
+        image_time=$(gcloud container images describe southamerica-east1-docker.pkg.dev/${PROJECT_ID}/pricing-repo/pricing:latest --format="value(image_summary.uploadTime)")
+        echo "Timestamp da imagem latest: $image_time"
+
+        # Converter timestamps para segundos desde o epoch para comparação
+        now_seconds=$(date -u +%s)
+        image_seconds=$(date -u -d "$image_time" +%s 2>/dev/null || date -u -j -f "%Y-%m-%dT%H:%M:%SZ" "$image_time" +%s)
+        diff_seconds=$((now_seconds - image_seconds))
+        diff_minutes=$((diff_seconds / 60))
+
+        echo "Imagem atualizada há $diff_minutes minutos."
+
+        # Verificar se a imagem foi atualizada recentemente (menos de 30 minutos)
+        if [ $diff_minutes -lt 30 ]; then
+          echo "✅ Imagem latest atualizada recentemente!"
+          return 0
+        else
+          echo "❌ Imagem latest não foi atualizada recentemente."
+          return 1
+        fi
+      }
+
+      # Tentar até 10 vezes (por aproximadamente 10 minutos)
       for i in {1..10}; do
-        echo "⏳ Aguardando... $i/10 minutos"
+        echo "============================================"
+        echo "Verificação $i de 10 (tentativas a cada 60s)"
+
+        # Verificar build e imagem
+        if check_build_status && check_image_status; then
+          echo "✅ Verificações concluídas com sucesso! Continuando para a migração."
+          exit 0
+        fi
+
+        echo "⏳ Aguardando 60s antes da próxima verificação..."
         sleep 60
       done
-      echo "✅ Tempo de espera concluído. Verificando imagem..."
 
-# Verificar se existe uma imagem latest válida
-- name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
-  id: 'verificar-imagem'
-  entrypoint: 'bash'
-  args:
-    - '-c'
-    - |
-      echo "Verificando se existe uma imagem latest válida..."
-      for i in {1..5}; do
-        if gcloud container images describe southamerica-east1-docker.pkg.dev/${PROJECT_ID}/pricing-repo/pricing:latest > /dev/null 2>&1; then
-          echo "✅ Imagem latest encontrada. Prosseguindo com a migração."
-          exit 0
-        else
-          echo "⏳ Imagem latest ainda não encontrada. Aguardando mais... (tentativa $i/5)"
-          sleep 60
-        fi
-      done
-
-      echo "❌ Imagem latest não encontrada após várias tentativas. O pipeline de build pode ter falhado."
-      exit 1
-  waitFor: ['aguardar-deploy']
+      # Se chegou até aqui, tentar usar a imagem mais recente disponível
+      echo "⚠️ Timeout nas verificações."
+      if gcloud container images describe southamerica-east1-docker.pkg.dev/${PROJECT_ID}/pricing-repo/pricing:latest > /dev/null 2>&1; then
+        echo "✅ Imagem latest existe. Prosseguindo com a migração usando a imagem disponível."
+        exit 0
+      else
+        echo "❌ Imagem latest não encontrada. Não é possível prosseguir com a migração."
+        exit 1
+      fi
 
 # Executar migrações com script de diagnóstico
 - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
@@ -56,7 +125,7 @@ steps:
     - '--update-env-vars=DOTENV_PATH=/secrets/.env.local,PRISMA_MIGRATE=true,DEBUG=prisma:*,NODE_OPTIONS=--max-old-space-size=1536'
     - '--command=bash'
     - '--args=-c "cd /app && echo \"Verificando configuração do Prisma...\" && npx prisma -v && npx prisma migrate deploy --create-only && echo \"Executando migração...\" && npx prisma migrate deploy"'
-  waitFor: ['verificar-imagem']
+  waitFor: ['verificar-status-deploy']
 
 # Executar o job e capturar logs
 - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
@@ -121,7 +190,7 @@ steps:
   waitFor: ['executar-migracoes']
   timeout: '1800s'  # 30 minutos de timeout
 
-timeout: '2400s'  # 40 minutos de timeout global (aumentado para acomodar a espera)
+timeout: '2400s'  # 40 minutos de timeout global
 
 options:
   logging: CLOUD_LOGGING_ONLY
