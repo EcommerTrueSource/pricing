@@ -10,8 +10,8 @@ steps:
       set -e
 
       # Obter o SHA do commit atual
-      CURRENT_COMMIT=$(git rev-parse HEAD)
-      echo "Commit atual: $CURRENT_COMMIT"
+      current_commit=$(git rev-parse HEAD)
+      echo "Commit atual: $current_commit"
 
       # Função para formatar timestamp
       format_time() {
@@ -19,15 +19,15 @@ steps:
       }
 
       # Timestamp atual menos 2 horas (para ter uma janela razoável)
-      START_TIME=$(date -u -d "-2 hours" "+%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date -u -v-2H "+%Y-%m-%dT%H:%M:%SZ")
-      echo "Buscando builds desde: $START_TIME"
+      start_time=$(date -u -d "-2 hours" "+%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date -u -v-2H "+%Y-%m-%dT%H:%M:%SZ")
+      echo "Buscando builds desde: $start_time"
 
       # Função para verificar se a build do cloudbuild.yaml para este commit foi concluída
       check_build_status() {
-        echo "Verificando status da build principal para o commit $CURRENT_COMMIT..."
+        echo "Verificando status da build principal para o commit $current_commit..."
 
         # Encontrar builds recentes para o commit atual
-        builds=$(gcloud builds list --filter="substitutions.COMMIT_SHA=$CURRENT_COMMIT OR substitutions.SHORT_SHA=$CURRENT_COMMIT OR source.repo_source.commit_sha=$CURRENT_COMMIT" --limit=5 --format="value(id,status)")
+        builds=$(gcloud builds list --filter="source.repo_source.commit_sha=$current_commit" --limit=5 --format="value(id,status)")
 
         if [ -z "$builds" ]; then
           echo "Nenhuma build encontrada para este commit."
