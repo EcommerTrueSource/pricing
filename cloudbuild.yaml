@@ -51,16 +51,16 @@ steps:
       # Iniciar o Cloud SQL Proxy em background
       echo "Iniciando Cloud SQL Proxy..."
       ./cloud_sql_proxy -instances=${PROJECT_ID}:southamerica-east1:pricing=tcp:5432 &
-      PROXY_PID=$$!
+      SQL_PROXY_PROCESS_ID=$!
 
       # Verificar se o proxy iniciou corretamente
       sleep 5
-      if ! ps -p $PROXY_PID > /dev/null; then
+      if ! ps -p $SQL_PROXY_PROCESS_ID > /dev/null; then
         echo "ERRO: Cloud SQL Proxy falhou ao iniciar"
         exit 1
       fi
 
-      echo "Cloud SQL Proxy iniciado com sucesso (PID: $PROXY_PID)"
+      echo "Cloud SQL Proxy iniciado com sucesso (PID: $SQL_PROXY_PROCESS_ID)"
 
       # Instalar Node.js e Prisma
       echo "Configurando ambiente Node.js..."
@@ -84,7 +84,7 @@ steps:
 
       if [ -z "$DATABASE_URL" ]; then
         echo "ERRO: Não foi possível recuperar o secret database_url_pricing"
-        kill $PROXY_PID
+        kill $SQL_PROXY_PROCESS_ID
         exit 1
       fi
 
@@ -92,10 +92,10 @@ steps:
       echo "Verificando conexão com o banco de dados..."
       npx prisma db pull --schema=./prisma/schema.prisma || {
         echo "ERRO: Não foi possível conectar ao banco de dados. Verificando status do proxy:"
-        ps -p $PROXY_PID
+        ps -p $SQL_PROXY_PROCESS_ID
         echo "Tentando executar um diagnóstico de rede:"
         netstat -tuln | grep 5432
-        kill $PROXY_PID
+        kill $SQL_PROXY_PROCESS_ID
         exit 1
       }
 
@@ -107,13 +107,13 @@ steps:
         echo "✅ Migração completada com sucesso"
       else
         echo "❌ Erro na migração do banco de dados"
-        kill $PROXY_PID
+        kill $SQL_PROXY_PROCESS_ID
         exit 1
       fi
 
       # Encerrar o Cloud SQL Proxy corretamente
       echo "Encerrando Cloud SQL Proxy..."
-      kill $PROXY_PID
+      kill $SQL_PROXY_PROCESS_ID
 
       echo "==== PROCESSO DE MIGRAÇÃO CONCLUÍDO ===="
 
