@@ -5,7 +5,7 @@
 O módulo de integração é responsável por gerenciar as conexões com serviços externos, incluindo:
 - Autentique (assinatura digital)
 - Brasil API (validação de CNPJ)
-- WhatsApp (notificações)
+- WhatsApp via Z-API (notificações)
 - Redis (cache e filas)
 
 ## 🏗️ Arquitetura
@@ -25,10 +25,11 @@ O módulo de integração é responsável por gerenciar as conexões com serviç
    - Tratamento de erros
 
 3. **WhatsAppService**
-   - Envio de mensagens
-   - Verificação de status
-   - Formatação de conteúdo
-   - Rate limiting
+   - Envio de mensagens via Z-API
+   - Verificação de status de entrega
+   - Formatação de conteúdo e templates
+   - Rate limiting e controle de tentativas
+   - Suporte a texto simples e links
 
 4. **RedisService**
    - Cache de dados
@@ -68,9 +69,11 @@ AUTENTIQUE_API_URL=https://api.autentique.com.br/v2
 # Brasil API
 BRASIL_API_URL=https://brasilapi.com.br/api/cnpj/v1
 
-# WhatsApp
-WHATSAPP_API_KEY=sua-chave
-WHATSAPP_API_URL=https://api.whatsapp.com/v1
+# Z-API (WhatsApp)
+ZAPI_BASE_URL=https://api.z-api.io
+ZAPI_INSTANCE_ID=seu-id
+ZAPI_TOKEN=seu-token
+ZAPI_CLIENT_TOKEN=seu-token-cliente
 
 # Redis
 REDIS_HOST=localhost
@@ -141,11 +144,23 @@ const isValid = await brasilApiService.validateCnpj(cnpj);
 ### Envio de Mensagem
 
 ```typescript
-// Enviar mensagem
+// Enviar mensagem simples
 await whatsappService.sendMessage({
     to: string,
     message: string,
 });
+
+// Enviar notificação de contrato
+await whatsappService.sendContractNotification(
+    phoneNumber,
+    {
+        razaoSocial: string,
+        contractUrl: string,
+        sellerId: string,
+        notificationAttempts: number,
+        messageContent: string
+    }
+);
 
 // Verificar status
 const status = await whatsappService.checkMessageStatus(messageId);

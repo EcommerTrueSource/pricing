@@ -224,6 +224,35 @@ npx prisma migrate deploy
 npx prisma migrate reset
 ```
 
+### Migrações em Produção (Cloud Run Jobs)
+
+As migrações em ambiente de produção são executadas através de Cloud Run Jobs,
+com um pipeline dedicado e isolado do deploy da aplicação.
+
+#### Arquitetura de Migração
+- **Job dedicado**: `pricing-migration-job`
+- **Recursos**: 2GB de RAM, 2 CPUs
+- **Retry automático**: até 3 tentativas
+- **Timeout**: 30 minutos
+
+#### Como funciona
+1. O arquivo `cloudbuild-migration.yaml` define o pipeline específico para migrações
+2. O script `src/prisma-migrate.ts` é executado quando a variável `PRISMA_MIGRATE=true`
+3. O script realiza a migração e valida a conexão com o banco após a conclusão
+4. Os logs são enviados para o Cloud Logging
+
+#### Vantagens
+- Separação de responsabilidades (migração ≠ deploy)
+- Recursos dedicados para operações de banco
+- Maior segurança e confiabilidade
+- Melhor observabilidade do processo
+
+#### Ativação do Trigger
+O trigger de migração é ativado automaticamente quando há modificações em:
+- Arquivos de schema Prisma (`prisma/**/*.prisma`)
+- Outros arquivos na pasta prisma (`prisma/**/*`)
+- Script de migração (`src/prisma-migrate.ts`)
+
 ## 📝 Boas Práticas
 
 1. **Backup**

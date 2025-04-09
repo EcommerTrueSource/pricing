@@ -1,128 +1,39 @@
 steps:
-# Executar migração do Prisma
-- name: 'gcr.io/cloud-builders/gcloud'
-  id: 'migrate'
-  entrypoint: bash
+# Atualizar definição do job de migração
+- name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+  id: 'atualizar-job-migracao'
+  entrypoint: 'gcloud'
   args:
-    - '-c'
-    - |
-      set -e  # Falhar imediatamente se qualquer comando retornar erro
+    - 'run'
+    - 'jobs'
+    - 'deploy'
+    - 'pricing-migration-job'
+    - '--region=southamerica-east1'
+    - '--image=southamerica-east1-docker.pkg.dev/${PROJECT_ID}/pricing-repo/pricing:latest'
+    - '--memory=2Gi'
+    - '--cpu=2'
+    - '--max-retries=3'
+    - '--task-timeout=30m'
+    - '--set-cloudsql-instances=${PROJECT_ID}:southamerica-east1:pricing'
+    - '--service-account=pricing-contract@${PROJECT_ID}.iam.gserviceaccount.com'
+    - '--set-secrets=/secrets/.env.local=env_pricing:latest'
+    - '--update-env-vars=DOTENV_PATH=/secrets/.env.local,PRISMA_MIGRATE=true'
 
-      echo "==== INICIANDO PROCESSO DE MIGRAÇÃO DO BANCO DE DADOS ===="
+# Executar migrações
+- name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+  id: 'executar-migracoes'
+  entrypoint: 'gcloud'
+  args:
+    - 'run'
+    - 'jobs'
+    - 'execute'
+    - 'pricing-migration-job'
+    - '--region=southamerica-east1'
+    - '--wait'
+  waitFor: ['atualizar-job-migracao']
+  timeout: '1800s'  # 30 minutos de timeout
 
-      # Instalar dependências necessárias
-      echo "Instalando dependências..."
-      apt-get update -qq && apt-get install -y -qq gcc python3-dev wget curl net-tools
+timeout: '2000s'  # Timeout global
 
-      # Instalar o Cloud SQL Proxy
-      echo "Baixando e configurando Cloud SQL Proxy..."
-      wget -q https://dl.google.com/cloudsql/cloud_sql_proxy.linux.amd64 -O /tmp/cloud_sql_proxy
-      chmod +x /tmp/cloud_sql_proxy
-
-      # Criar diretório para o socket do Cloud SQL Proxy
-      mkdir -p /cloudsql
-
-      # Iniciar o Cloud SQL Proxy em foreground (não background)
-      echo "Iniciando Cloud SQL Proxy em modo verbose..."
-      # Iniciar em background, mas com log mais detalhado
-      /tmp/cloud_sql_proxy -instances=${PROJECT_ID}:southamerica-east1:pricing=tcp:5432 -verbose &
-
-      # Salvar PID
-      echo $! > /tmp/proxy.pid
-      proxy_pid=$(cat /tmp/proxy.pid)
-
-      # Verificar se o proxy iniciou corretamente
-      echo "Aguardando inicialização do Cloud SQL Proxy..."
-      sleep 10  # Maior tempo de espera para garantir que o proxy está pronto
-
-      # Verificar se o processo está rodando
-      if ! ps -p $proxy_pid > /dev/null; then
-        echo "ERRO: Cloud SQL Proxy falhou ao iniciar"
-        exit 1
-      fi
-
-      echo "Cloud SQL Proxy iniciado com sucesso (PID: $proxy_pid)"
-      echo "Verificando conexões de rede locais:"
-      netstat -tulpn | grep 5432 || true
-
-      # Função para encerrar o proxy ao finalizar
-      cleanup() {
-        echo "Encerrando Cloud SQL Proxy..."
-        if ps -p $proxy_pid > /dev/null; then
-          kill $proxy_pid
-        fi
-      }
-      trap cleanup EXIT
-
-      # Instalar Node.js e Prisma
-      echo "Configurando ambiente Node.js..."
-      curl -fsSL https://deb.nodesource.com/setup_18.x | bash -
-      apt-get install -y nodejs
-
-      echo "Versão do Node.js instalada:"
-      node --version
-
-      echo "Instalando Prisma CLI..."
-      npm install -g prisma
-
-      # Instalar dependências do projeto
-      echo "Instalando dependências do projeto..."
-      cd /workspace
-      npm ci
-
-      # Acessar o secret para a URL do banco de dados
-      echo "Recuperando segredo da URL do banco de dados..."
-      gcloud secrets versions access latest --secret="database_url_pricing" > /tmp/db_url
-
-      # Verificar se o arquivo existe e tem conteúdo
-      if [ ! -s /tmp/db_url ]; then
-        echo "ERRO: Não foi possível recuperar o secret database_url_pricing"
-        exit 1
-      fi
-
-      # Definir a variável DATABASE_URL explicitamente para o Prisma
-      echo "Definindo variável DATABASE_URL para o Prisma..."
-      export DATABASE_URL=$(cat /tmp/db_url)
-
-      # Verificar se a variável foi definida corretamente
-      echo "Verificando se DATABASE_URL foi definida (exibindo apenas os primeiros caracteres):"
-      echo "${DATABASE_URL:0:15}...${DATABASE_URL: -15}" # Mostra apenas o início e final da URL para segurança
-
-      # Testar a conexão com o banco usando comandos básicos
-      echo "Testando conexão com o PostgreSQL usando psql..."
-      apt-get install -y postgresql-client
-      PGPASSWORD=$(echo $DATABASE_URL | sed -n 's/.*:\/\/[^:]*:\([^@]*\)@.*/\1/p') \
-      psql -h localhost -p 5432 -U $(echo $DATABASE_URL | sed -n 's/.*:\/\/\([^:]*\):.*/\1/p') \
-           -d $(echo $DATABASE_URL | sed -n 's/.*\/\([^?]*\).*/\1/p') \
-           -c "SELECT 1 as connection_test;"
-
-      # Verificar conexão com o banco antes de prosseguir
-      echo "Verificando conexão com o banco de dados usando Prisma..."
-      npx prisma db pull --schema=./prisma/schema.prisma || {
-        echo "ERRO: Não foi possível conectar ao banco de dados usando o Prisma."
-        echo "Detalhes da conexão (sem senha):"
-        echo "Host: localhost"
-        echo "Port: 5432"
-        echo "User: $(echo $DATABASE_URL | sed -n 's/.*:\/\/\([^:]*\):.*/\1/p')"
-        echo "Database: $(echo $DATABASE_URL | sed -n 's/.*\/\([^?]*\).*/\1/p')"
-        exit 1
-      }
-
-      # Executar migração usando a variável DATABASE_URL exportada
-      echo "Executando migração do Prisma..."
-      npx prisma migrate deploy
-
-      migration_status=$?
-      if [ $migration_status -eq 0 ]; then
-        echo "✅ Migração completada com sucesso"
-      else
-        echo "❌ Erro na migração do banco de dados"
-        exit 1
-      fi
-
-      # Limpar arquivos temporários
-      rm -f /tmp/db_url
-
-      echo "==== PROCESSO DE MIGRAÇÃO CONCLUÍDO ===="
-
-timeout: '900s'  # 15 minutos
+options:
+  logging: CLOUD_LOGGING_ONLY

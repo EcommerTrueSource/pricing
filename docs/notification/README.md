@@ -24,9 +24,11 @@ O módulo de notificação é responsável por gerenciar o envio de mensagens pa
    - Configuração de retry
 
 4. **WhatsAppService**
-   - Integração com API do WhatsApp
-   - Formatação de mensagens
-   - Tratamento de erros
+   - Integração com Z-API para WhatsApp
+   - Suporte a mensagens de texto e links
+   - Templates para diferentes tentativas
+   - Verificação de entrega
+   - Formatação adequada de números
 
 ### Fluxo de Notificação
 
@@ -62,9 +64,11 @@ O módulo de notificação é responsável por gerenciar o envio de mensagens pa
 REDIS_HOST=localhost
 REDIS_PORT=6379
 
-# WhatsApp
-WHATSAPP_API_KEY=sua-chave
-WHATSAPP_API_URL=https://api.whatsapp.com/v1
+# Z-API (WhatsApp)
+ZAPI_BASE_URL=https://api.z-api.io
+ZAPI_INSTANCE_ID=seu-id
+ZAPI_TOKEN=seu-token
+ZAPI_CLIENT_TOKEN=seu-token-cliente
 
 # Bull Queue
 QUEUE_PREFIX=notifications
@@ -196,7 +200,19 @@ interface NotificationQueueService {
 
 ```typescript
 interface WhatsAppService {
-    sendMessage(notification: Notification): Promise<void>;
-    checkMessageStatus(messageId: string): Promise<MessageStatus>;
+    // Envia mensagem de texto simples
+    sendMessage(notification: Notification): Promise<{messageId: string | null}>;
+
+    // Envia mensagem para contrato com link de assinatura
+    sendContractNotification(
+        phoneNumber: string,
+        params: ContractNotificationParams
+    ): Promise<{success: boolean; messageId?: string | null; error?: string}>;
+
+    // Verifica status da mensagem
+    checkMessageStatus(messageId: string): Promise<{status: string; details?: any}>;
+
+    // Formata número de telefone para padrão internacional
+    formatPhoneNumber(phoneNumber: string): string;
 }
 ```

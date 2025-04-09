@@ -101,6 +101,31 @@ Este documento descreve os principais fluxos de negócio do sistema, incluindo:
 - Erro na atualização: retorna 500
 - Timeout: agenda retry
 
+### 6. CI/CD e Deploy
+
+#### Fluxo de Deploy
+1. Commit no repositório é detectado pelo Cloud Build
+2. Pipeline `cloudbuild.yaml` é iniciado
+3. Build da imagem Docker e push para Artifact Registry
+4. Deploy no Cloud Run com secrets e recursos configurados
+5. Health check verifica o status da aplicação
+6. Rollback automático em caso de falha
+
+#### Fluxo de Migração
+1. Modificações na estrutura do banco são detectadas
+2. Pipeline `cloudbuild-migration.yaml` é acionado
+3. Definição do job `pricing-migration-job` é atualizada
+4. Job é executado com recursos dedicados (2GB RAM, 2 CPUs)
+5. Script `prisma-migrate.ts` executa a migração
+6. Conexão com o banco é verificada após migração
+7. Logs são enviados para o Cloud Logging
+
+#### Prioridades do Pipeline
+- Segurança: uso de secrets e service accounts
+- Separação de responsabilidades: deploy e migração isolados
+- Confiabilidade: health checks e retry automatizados
+- Observabilidade: logs detalhados para diagnóstico
+
 ## 📊 Estados
 
 ### Contrato

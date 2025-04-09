@@ -205,6 +205,34 @@ await notificationService.forceNotification(contractId);
 await templateService.validate(templateId);
 ```
 
+## 🚀 Deploy e CI/CD
+
+### Infraestrutura
+- **Ambiente**: Google Cloud Run
+- **Banco de Dados**: Cloud SQL (PostgreSQL)
+- **Cache**: Redis
+- **CI/CD**: Cloud Build
+
+### Pipeline de Deploy
+O deploy da aplicação é gerenciado pelo Cloud Build através do arquivo `cloudbuild.yaml`, que:
+1. Constrói a imagem Docker da aplicação
+2. Faz push para o Artifact Registry
+3. Atualiza o serviço no Cloud Run
+4. Realiza health check para verificar o status
+
+### Migrações de Banco de Dados
+Migrações são executadas por um processo separado:
+1. Cloud Run Jobs (`pricing-migration-job`)
+2. Script dedicado (`src/prisma-migrate.ts`)
+3. Variável de ambiente `PRISMA_MIGRATE=true`
+4. Recursos dedicados (2GB RAM, 2 CPUs)
+5. Retry automático (até 3 tentativas)
+
+### Separação de Responsabilidades
+- **Deploy da aplicação**: Não realiza migrações de banco
+- **Migração de banco**: Processo isolado e controlado
+- **Vantagens**: Segurança, robustez, observabilidade
+
 ## 📚 Referência da API
 
 ### SellerService

@@ -10,10 +10,22 @@ import * as path from 'path';
 import { Logger } from '@nestjs/common';
 // import * as csurf from 'csurf';
 
+// Importar o script de migração (será executado automaticamente se PRISMA_MIGRATE=true)
+import './prisma-migrate';
+
 // Carrega as variáveis de ambiente do caminho especificado na variável DOTENV_PATH ou usa .env.local por padrão
 const envPath = process.env.DOTENV_PATH || path.resolve(process.cwd(), '.env.local');
 console.log(`Carregando variáveis de ambiente de: ${envPath}`);
 dotenv.config({ path: envPath });
+
+// Se estamos no modo de migração, não iniciar o servidor web
+if (process.env.PRISMA_MIGRATE === 'true') {
+    console.log('Modo de migração ativado. O servidor web não será iniciado.');
+    // A migração será executada pelo script importado acima
+} else {
+    // Iniciar o servidor web normalmente
+    bootstrap();
+}
 
 async function bootstrap() {
     const logger = new Logger('Bootstrap');
@@ -61,28 +73,62 @@ async function bootstrap() {
         .setTitle('API de Gerenciamento de Contratos')
         .setDescription(
             `
-      API para gerenciamento de contratos e vendedores.
+      # Sistema de Gerenciamento de Contratos e Parceiros Comerciais
 
-      ## Funcionalidades
-      - Gestão de vendedores
-      - Gestão de contratos
-      - Gestão de templates
-      - Sistema de notificações
-      - Integração com serviços externos
+      ## 📋 Visão Geral
 
-      ## Autenticação
+      API completa para automação do ciclo de vida de contratos comerciais, desde o cadastro de vendedores
+      até a assinatura digital e notificações automáticas.
+
+      ## 🏗️ Módulos Principais
+
+      ### Vendedores (Sellers)
+      - Cadastro completo com validação de CNPJ via Brasil API
+      - Consulta e atualização de dados cadastrais
+      - Histórico de alterações e contratos associados
+
+      ### Contratos (Contracts)
+      - Criação de contratos a partir de templates personalizáveis
+      - Fluxo de aprovação e assinatura digital via Autentique
+      - Monitoramento de status e prazos de validade
+      - Histórico completo de alterações de status
+
+      ### Templates
+      - Gerenciamento de modelos de contrato com versionamento
+      - Substituição automática de variáveis dinâmicas
+      - Validação de conteúdo e formatação
+
+      ### Notificações
+      - Envio automático de lembretes para assinatura
+      - Integração com WhatsApp via Z-API
+      - Agendamento inteligente com retry automático
+      - Monitoramento de entregas e leituras
+
+      ### Webhooks e Integrações
+      - Webhooks para integração com sistemas externos (Mercos)
+      - Recebimento de eventos da Autentique (assinaturas/rejeições)
+      - API Brasil para validação de dados empresariais
+      - Z-API para comunicação via WhatsApp
+
+      ## 🔐 Autenticação
       Todas as rotas protegidas requerem um token JWT no header:
       \`Authorization: Bearer seu-token-jwt\`
 
       ### Opções de Login:
       - Email/Senha: POST /api/auth/login
-      - Google: GET /api/auth/google
+      - Google OAuth: GET /api/auth/google
       - Token para testes: GET /api/auth/token
 
-      ## Roles
-      - ADMIN: Acesso total ao sistema
-      - MANAGER: Acesso a gestão de contratos e vendedores
-      - USER: Acesso básico para visualização
+      ## 👥 Controle de Acesso
+      - **ADMIN**: Acesso completo ao sistema, incluindo gerenciamento de usuários
+      - **MANAGER**: Gerenciamento de contratos, vendedores e notificações
+      - **USER**: Visualização de dados com permissões restritas
+
+      ## 📱 Fluxos Principais
+      1. **Cadastro de Vendedor**: Validação de CNPJ → Armazenamento → Notificação de boas-vindas
+      2. **Emissão de Contrato**: Seleção de template → Substituição de variáveis → Envio para assinatura
+      3. **Fluxo de Assinatura**: Notificação por WhatsApp → Lembretes automáticos → Confirmação de assinatura
+      4. **Integração via Webhook**: Recebimento de eventos externos → Processamento automático → Notificação de status
     `,
         )
         .setVersion('1.0')
@@ -146,4 +192,3 @@ async function bootstrap() {
     const appUrl = await app.getUrl();
     console.log(`Endereço base da aplicação: ${appUrl}`);
 }
-bootstrap();
