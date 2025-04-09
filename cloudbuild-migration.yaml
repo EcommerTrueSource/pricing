@@ -16,7 +16,7 @@ steps:
     - '--task-timeout=30m'
     - '--set-cloudsql-instances=${PROJECT_ID}:southamerica-east1:pricing'
     - '--service-account=pricing-contract@${PROJECT_ID}.iam.gserviceaccount.com'
-    - '--set-secrets=/secrets/.env.local=env_pricing:latest'
+    - '--set-secrets=/secrets/.env.local=env_pricing:latest,DATABASE_URL=database_url_pricing:latest'
     - '--update-env-vars=DOTENV_PATH=/secrets/.env.local,PRISMA_MIGRATE=true'
 
 # Executar migrações
