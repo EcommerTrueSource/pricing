@@ -1,218 +1,114 @@
 steps:
-# Verificar se a imagem do commit atual está disponível como latest
+# Aguardar tempo suficiente para o deploy finalizar
+- name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+  id: 'aguardar-deploy'
+  entrypoint: 'bash'
+  args:
+    - '-c'
+    - |
+      echo "Aguardando tempo suficiente para o deploy finalizar (10 minutos)..."
+      for i in {1..10}; do
+        echo "⏳ Aguardando... $i/10 minutos"
+        sleep 60
+      done
+      echo "✅ Tempo de espera concluído. Verificando imagem..."
+
+# Verificar se existe uma imagem latest válida
 - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
   id: 'verificar-imagem'
   entrypoint: 'bash'
   args:
     - '-c'
     - |
-      #!/bin/bash
-      # Usar sintaxe diferente para evitar confusão com as variáveis de substituição do Cloud Build
-      echo "Obtendo SHA do commit atual..."
-      commit_sha=$(git rev-parse --short HEAD || echo "unknown")
-      echo "SHA do commit atual: $commit_sha"
-
-      echo "Verificando se a imagem do commit atual está disponível e marcada como latest..."
-      for i in {1..15}; do
-        # Verificar se a tag latest existe
-        if ! gcloud container images describe southamerica-east1-docker.pkg.dev/${PROJECT_ID}/pricing-repo/pricing:latest > /dev/null 2>&1; then
-          echo "⏳ Tag 'latest' ainda não encontrada. Aguardando... (tentativa $i/15)"
-          sleep 20
-          continue
-        fi
-
-        # Obter o digest da imagem latest
-        latest_digest=$(gcloud container images describe southamerica-east1-docker.pkg.dev/${PROJECT_ID}/pricing-repo/pricing:latest --format="value(image_summary.digest)")
-        echo "Digest da imagem latest: $latest_digest"
-
-        # Verificar se a imagem deste commit está disponível
-        if gcloud container images list-tags southamerica-east1-docker.pkg.dev/${PROJECT_ID}/pricing-repo/pricing --filter="tags:$commit_sha" --format="value(digest)" | grep -q "$latest_digest"; then
-          echo "✅ Verificação bem-sucedida! A imagem latest corresponde ao commit atual."
+      echo "Verificando se existe uma imagem latest válida..."
+      for i in {1..5}; do
+        if gcloud container images describe southamerica-east1-docker.pkg.dev/${PROJECT_ID}/pricing-repo/pricing:latest > /dev/null 2>&1; then
+          echo "✅ Imagem latest encontrada. Prosseguindo com a migração."
           exit 0
         else
-          echo "⏳ Imagem do commit atual ainda não está marcada como latest. Aguardando... (tentativa $i/15)"
-          sleep 20
+          echo "⏳ Imagem latest ainda não encontrada. Aguardando mais... (tentativa $i/5)"
+          sleep 60
         fi
       done
 
-      # Se chegou aqui, não encontrou a imagem no tempo esperado
-      # Tentar usar a última imagem disponível como fallback
-      echo "⚠️ Não foi possível confirmar que a imagem latest corresponde ao commit atual."
-      echo "Verificando se existe uma imagem latest válida para prosseguir..."
+      echo "❌ Imagem latest não encontrada após várias tentativas. O pipeline de build pode ter falhado."
+      exit 1
+  waitFor: ['aguardar-deploy']
 
-      if gcloud container images describe southamerica-east1-docker.pkg.dev/${PROJECT_ID}/pricing-repo/pricing:latest > /dev/null 2>&1; then
-        echo "✅ Imagem latest existe. Prosseguindo com a migração usando a última imagem disponível."
-        exit 0
-      else
-        echo "❌ Nenhuma imagem latest encontrada. O pipeline de build pode ter falhado."
-        exit 1
-      fi
-
-# Verificar permissões da conta de serviço
-- name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
-  id: 'verificar-permissoes'
-  entrypoint: 'bash'
-  args:
-    - '-c'
-    - |
-      echo "Verificando permissões da conta de serviço..."
-      account="pricing-contract@${PROJECT_ID}.iam.gserviceaccount.com"
-
-      echo "Verificando se a conta $account tem acesso ao Cloud SQL..."
-      if gcloud projects get-iam-policy ${PROJECT_ID} --format="table(bindings.role,bindings.members)" | grep -E "cloudsql\.(client|instanceUser)" | grep $account; then
-        echo "✅ Conta de serviço tem permissões para Cloud SQL"
-      else
-        echo "⚠️ Não foi possível confirmar permissões de Cloud SQL para a conta de serviço"
-        echo "Recomendação: Verifique se a conta tem roles/cloudsql.client e roles/cloudsql.instanceUser"
-      fi
-
-      echo "Verificando se a instância Cloud SQL '${PROJECT_ID}:southamerica-east1:pricing' existe..."
-      if gcloud sql instances describe pricing --project ${PROJECT_ID} > /dev/null 2>&1; then
-        echo "✅ Instância Cloud SQL encontrada!"
-      else
-        echo "❌ Instância Cloud SQL não encontrada. Verifique o nome e região."
-        exit 1
-      fi
-  waitFor: ['verificar-imagem']
-
-# Atualizar definição do job de migração com configuração aprimorada
-- name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
-  id: 'atualizar-job-migracao'
-  entrypoint: 'gcloud'
-  args:
-    - 'run'
-    - 'jobs'
-    - 'deploy'
-    - 'pricing-migration-job'
-    - '--region=southamerica-east1'
-    - '--image=southamerica-east1-docker.pkg.dev/${PROJECT_ID}/pricing-repo/pricing:latest'
-    - '--memory=2Gi'
-    - '--cpu=2'
-    - '--max-retries=3'
-    - '--task-timeout=30m'
-    - '--set-cloudsql-instances=${PROJECT_ID}:southamerica-east1:pricing'
-    - '--service-account=pricing-contract@${PROJECT_ID}.iam.gserviceaccount.com'
-    - '--set-secrets=/secrets/.env.local=env_pricing:latest,DATABASE_URL=database_url_pricing:8'
-    - '--update-env-vars=DOTENV_PATH=/secrets/.env.local,PRISMA_MIGRATE=true,DEBUG=prisma:*,NODE_OPTIONS=--max-old-space-size=1536'
-  waitFor: ['verificar-permissoes']
-
-# Criar script de validação da conexão do banco
-- name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
-  id: 'criar-script-validacao'
-  entrypoint: 'bash'
-  args:
-    - '-c'
-    - |
-      cat > /workspace/validate-db.js << 'EOL'
-      const { exec } = require('child_process');
-
-      console.log('Iniciando validação da conexão do banco de dados...');
-
-      // Verificar variáveis de ambiente
-      console.log('Verificando variáveis de ambiente:');
-      console.log('DOTENV_PATH:', process.env.DOTENV_PATH);
-      console.log('PRISMA_MIGRATE:', process.env.PRISMA_MIGRATE);
-
-      // Obter e validar a string de conexão (escondendo a senha)
-      const dbUrlParts = process.env.DATABASE_URL ? process.env.DATABASE_URL.split('@') : [];
-      if (dbUrlParts.length > 1) {
-        const credentials = dbUrlParts[0].split(':');
-        const maskedUrl = `${credentials[0]}:****@${dbUrlParts.slice(1).join('@')}`;
-        console.log('DATABASE_URL (masked):', maskedUrl);
-      } else {
-        console.log('DATABASE_URL não encontrada ou em formato inválido!');
-        process.exit(1);
-      }
-
-      // Verificar se a string de conexão contém o caminho do socket Cloud SQL
-      if (!process.env.DATABASE_URL.includes('/cloudsql/')) {
-        console.log('ERRO: DATABASE_URL não contém o caminho do socket Cloud SQL (/cloudsql/...)');
-        console.log('Formato recomendado: postgresql://USER:PASSWORD@localhost/DATABASE?schema=SCHEMA&socket=/cloudsql/PROJECT:REGION:INSTANCE');
-        process.exit(1);
-      }
-
-      // Verificar se o prisma está instalado
-      console.log('Verificando instalação do Prisma...');
-      exec('npx prisma -v', (error, stdout, stderr) => {
-        if (error) {
-          console.log('❌ Prisma não instalado ou não encontrado no PATH');
-          console.log(error);
-          process.exit(1);
-        }
-
-        console.log(stdout);
-        console.log('✅ Prisma instalado corretamente');
-
-        // Testar a conexão com o banco via Prisma
-        console.log('Testando conexão com o banco via Prisma...');
-        exec('npx prisma db pull --print', (error, stdout, stderr) => {
-          if (error) {
-            console.log('❌ Falha ao conectar ao banco de dados:');
-            console.log(stderr);
-            process.exit(1);
-          }
-
-          console.log('✅ Conexão com o banco estabelecida com sucesso!');
-          process.exit(0);
-        });
-      });
-      EOL
-
-      echo "Script de validação criado em /workspace/validate-db.js"
-  waitFor: ['atualizar-job-migracao']
-
-# Executar job de validação
-- name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
-  id: 'verificar-conexao-banco'
-  entrypoint: 'gcloud'
-  args:
-    - 'run'
-    - 'jobs'
-    - 'deploy'
-    - 'pricing-migration-validate'
-    - '--region=southamerica-east1'
-    - '--image=southamerica-east1-docker.pkg.dev/${PROJECT_ID}/pricing-repo/pricing:latest'
-    - '--memory=2Gi'
-    - '--cpu=2'
-    - '--max-retries=1'
-    - '--task-timeout=5m'
-    - '--set-cloudsql-instances=${PROJECT_ID}:southamerica-east1:pricing'
-    - '--service-account=pricing-contract@${PROJECT_ID}.iam.gserviceaccount.com'
-    - '--set-secrets=/secrets/.env.local=env_pricing:latest,DATABASE_URL=database_url_pricing:8'
-    - '--update-env-vars=DOTENV_PATH=/secrets/.env.local,VALIDATE_DB_ONLY=true,DEBUG=prisma:*'
-    - '--command=node'
-    - '--args=/workspace/validate-db.js'
-  waitFor: ['criar-script-validacao']
-
-# Executar validação de conexão e configuração
-- name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
-  id: 'executar-validacao'
-  entrypoint: 'gcloud'
-  args:
-    - 'run'
-    - 'jobs'
-    - 'execute'
-    - 'pricing-migration-validate'
-    - '--region=southamerica-east1'
-    - '--wait'
-  waitFor: ['verificar-conexao-banco']
-  timeout: '300s'  # 5 minutos de timeout
-
-# Executar migrações
+# Executar migrações com script de diagnóstico
 - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
   id: 'executar-migracoes'
   entrypoint: 'gcloud'
   args:
     - 'run'
     - 'jobs'
-    - 'execute'
+    - 'deploy'
     - 'pricing-migration-job'
     - '--region=southamerica-east1'
-    - '--wait'
-  waitFor: ['executar-validacao']
+    - '--image=southamerica-east1-docker.pkg.dev/${PROJECT_ID}/pricing-repo/pricing:latest'
+    - '--memory=2Gi'
+    - '--cpu=2'
+    - '--max-retries=1'
+    - '--task-timeout=30m'
+    - '--set-cloudsql-instances=${PROJECT_ID}:southamerica-east1:pricing'
+    - '--service-account=pricing-contract@${PROJECT_ID}.iam.gserviceaccount.com'
+    - '--set-secrets=/secrets/.env.local=env_pricing:latest,DATABASE_URL=database_url_pricing:8'
+    - '--update-env-vars=DOTENV_PATH=/secrets/.env.local,PRISMA_MIGRATE=true,DEBUG=prisma:*,NODE_OPTIONS=--max-old-space-size=1536'
+    - '--command=bash'
+    - '--args=-c "cd /app && echo DATABASE_URL: $DATABASE_URL | sed \"s/:[^:]*@/:*****@/g\" && npx prisma -v && npx prisma migrate deploy --create-only && npx prisma migrate deploy"'
+  waitFor: ['verificar-imagem']
+
+# Executar o job e capturar logs
+- name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+  id: 'iniciar-migracao'
+  entrypoint: 'bash'
+  args:
+    - '-c'
+    - |
+      echo "Iniciando job de migração e capturando logs detalhados..."
+
+      # Variáveis para armazenar execução e status
+      job_id=$(gcloud run jobs execute pricing-migration-job --region=southamerica-east1 --format="value(metadata.name)")
+      echo "ID do job: $job_id"
+
+      # Aguardar alguns segundos para o job iniciar
+      echo "Aguardando o job iniciar..."
+      sleep 10
+
+      # Verificar status e exibir logs em tempo real
+      echo "Obtendo logs do job..."
+      for i in {1..20}; do
+        echo "Verificando status e logs (tentativa $i/20)..."
+
+        # Obter o status atual do job
+        status=$(gcloud run jobs executions describe $job_id --region=southamerica-east1 --format="value(status)")
+        echo "Status atual: $status"
+
+        # Exibir logs do job
+        gcloud logging read "resource.type=cloud_run_job AND resource.labels.job_name=pricing-migration-job AND resource.labels.location=southamerica-east1 AND logName:stdout AND timestamp>$(date -u -v-10M +%Y-%m-%dT%H:%M:%SZ)" --order=asc --format="table(timestamp.dateTime, textPayload)" --limit=50
+
+        # Se o job terminou, sair do loop
+        if [[ "$status" == "SUCCEEDED" ]]; then
+          echo "✅ Job concluído com sucesso!"
+          exit 0
+        elif [[ "$status" == "FAILED" ]]; then
+          echo "❌ Job falhou! Detalhes:"
+          gcloud run jobs executions describe $job_id --region=southamerica-east1
+          echo "Exibindo logs de erro:"
+          gcloud logging read "resource.type=cloud_run_job AND resource.labels.job_name=pricing-migration-job AND resource.labels.location=southamerica-east1 AND logName:stderr AND timestamp>$(date -u -v-30M +%Y-%m-%dT%H:%M:%SZ)" --order=asc --format="table(textPayload)" --limit=100
+          exit 1
+        fi
+
+        # Aguardar antes da próxima verificação
+        sleep 30
+      done
+
+      echo "❌ Timeout na execução do job"
+      exit 1
+  waitFor: ['executar-migracoes']
   timeout: '1800s'  # 30 minutos de timeout
 
-timeout: '2000s'  # Timeout global
+timeout: '2400s'  # 40 minutos de timeout global (aumentado para acomodar a espera)
 
 options:
   logging: CLOUD_LOGGING_ONLY
