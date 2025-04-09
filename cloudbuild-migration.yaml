@@ -1,110 +1,5 @@
 steps:
-# Verificar de forma dinâmica se a build do cloudbuild.yaml foi concluída
-- name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
-  id: 'verificar-status-deploy'
-  entrypoint: 'bash'
-  args:
-    - '-c'
-    - |
-      #!/bin/bash
-      set -e
-
-      # Obter o SHA do commit atual
-      current_commit=$(git rev-parse HEAD)
-      echo "Commit atual: $current_commit"
-
-      # Função para formatar timestamp
-      format_time() {
-        date -u "+%Y-%m-%dT%H:%M:%SZ"
-      }
-
-      # Timestamp atual menos 2 horas (para ter uma janela razoável)
-      start_time=$(date -u -d "-2 hours" "+%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date -u -v-2H "+%Y-%m-%dT%H:%M:%SZ")
-      echo "Buscando builds desde: $start_time"
-
-      # Função para verificar se a build do cloudbuild.yaml para este commit foi concluída
-      check_build_status() {
-        echo "Verificando status da build principal para o commit $current_commit..."
-
-        # Encontrar builds recentes para o commit atual
-        builds=$(gcloud builds list --filter="source.repo_source.commit_sha=$current_commit" --limit=5 --format="value(id,status)")
-
-        if [ -z "$builds" ]; then
-          echo "Nenhuma build encontrada para este commit."
-          return 1
-        fi
-
-        echo "Builds encontradas para este commit:"
-        echo "$builds"
-
-        # Verificar se alguma build foi bem-sucedida
-        if echo "$builds" | grep -q "SUCCESS"; then
-          echo "✅ Build principal concluída com sucesso!"
-          return 0
-        else
-          echo "Build principal ainda não concluída com sucesso."
-          return 1
-        fi
-      }
-
-      # Função para verificar se a imagem latest está atualizada
-      check_image_status() {
-        echo "Verificando status da imagem latest..."
-
-        # Verificar se a imagem latest existe
-        if ! gcloud container images describe southamerica-east1-docker.pkg.dev/${PROJECT_ID}/pricing-repo/pricing:latest > /dev/null 2>&1; then
-          echo "❌ Imagem latest não encontrada."
-          return 1
-        fi
-
-        # Obter timestamp da imagem latest
-        image_time=$(gcloud container images describe southamerica-east1-docker.pkg.dev/${PROJECT_ID}/pricing-repo/pricing:latest --format="value(image_summary.uploadTime)")
-        echo "Timestamp da imagem latest: $image_time"
-
-        # Converter timestamps para segundos desde o epoch para comparação
-        now_seconds=$(date -u +%s)
-        image_seconds=$(date -u -d "$image_time" +%s 2>/dev/null || date -u -j -f "%Y-%m-%dT%H:%M:%SZ" "$image_time" +%s)
-        diff_seconds=$((now_seconds - image_seconds))
-        diff_minutes=$((diff_seconds / 60))
-
-        echo "Imagem atualizada há $diff_minutes minutos."
-
-        # Verificar se a imagem foi atualizada recentemente (menos de 30 minutos)
-        if [ $diff_minutes -lt 30 ]; then
-          echo "✅ Imagem latest atualizada recentemente!"
-          return 0
-        else
-          echo "❌ Imagem latest não foi atualizada recentemente."
-          return 1
-        fi
-      }
-
-      # Tentar até 10 vezes (por aproximadamente 10 minutos)
-      for i in {1..10}; do
-        echo "============================================"
-        echo "Verificação $i de 10 (tentativas a cada 60s)"
-
-        # Verificar build e imagem
-        if check_build_status && check_image_status; then
-          echo "✅ Verificações concluídas com sucesso! Continuando para a migração."
-          exit 0
-        fi
-
-        echo "⏳ Aguardando 60s antes da próxima verificação..."
-        sleep 60
-      done
-
-      # Se chegou até aqui, tentar usar a imagem mais recente disponível
-      echo "⚠️ Timeout nas verificações."
-      if gcloud container images describe southamerica-east1-docker.pkg.dev/${PROJECT_ID}/pricing-repo/pricing:latest > /dev/null 2>&1; then
-        echo "✅ Imagem latest existe. Prosseguindo com a migração usando a imagem disponível."
-        exit 0
-      else
-        echo "❌ Imagem latest não encontrada. Não é possível prosseguir com a migração."
-        exit 1
-      fi
-
-# Executar migrações com script de diagnóstico
+# Executar migrações do Prisma no Cloud Run Jobs
 - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
   id: 'executar-migracoes'
   entrypoint: 'gcloud'
@@ -124,8 +19,7 @@ steps:
     - '--set-secrets=/secrets/.env.local=env_pricing:latest,DATABASE_URL=database_url_pricing:8'
     - '--update-env-vars=DOTENV_PATH=/secrets/.env.local,PRISMA_MIGRATE=true,DEBUG=prisma:*,NODE_OPTIONS=--max-old-space-size=1536'
     - '--command=bash'
-    - '--args=-c "cd /app && echo \"Verificando configuração do Prisma...\" && npx prisma -v && npx prisma migrate deploy --create-only && echo \"Executando migração...\" && npx prisma migrate deploy"'
-  waitFor: ['verificar-status-deploy']
+    - '--args=-c "cd /app && echo \"Executando migrações do Prisma...\" && npx prisma migrate deploy"'
 
 # Executar o job e capturar logs
 - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
@@ -134,63 +28,46 @@ steps:
   args:
     - '-c'
     - |
-      echo "Iniciando job de migração e capturando logs detalhados..."
-
-      # Executar o job e capturar o ID
-      echo "Executando o job de migração..."
+      echo "Iniciando job de migração..."
       job_id=$(gcloud run jobs execute pricing-migration-job --region=southamerica-east1 --format="value(metadata.name)")
       echo "ID do job: $job_id"
 
-      # Aguardar alguns segundos para o job iniciar
-      echo "Aguardando o job iniciar..."
-      sleep 10
+      echo "Aguardando execução do job..."
+      max_attempts=30
+      attempt=1
 
-      # Função para obter timestamp formatado para queries
-      get_timestamp() {
-        # Obter data atual em formato RFC3339
-        date -u +"%Y-%m-%dT%H:%M:%SZ"
-      }
+      while [ $attempt -le $max_attempts ]; do
+        echo "Verificando status (tentativa $attempt/$max_attempts)..."
 
-      # Capturar logs e status
-      start_time=$(get_timestamp)
-      echo "Hora inicial de logs: $start_time"
+        status=$(gcloud run jobs executions describe $job_id --region=southamerica-east1 --format="value(status)" 2>/dev/null || echo "PENDING")
+        echo "Status: $status"
 
-      # Verificar status e exibir logs em loop
-      for i in {1..20}; do
-        echo ""
-        echo "==== Verificando status da execução (tentativa $i/20) ===="
-
-        # Obter status atual
-        status=$(gcloud run jobs executions describe "$job_id" --region=southamerica-east1 --format="value(status)" 2>/dev/null || echo "DESCONHECIDO")
-        echo "Status atual: $status"
-
-        # Exibir logs recentes
-        echo "Exibindo logs recentes:"
-        gcloud logging read "resource.type=cloud_run_job AND resource.labels.job_name=pricing-migration-job AND resource.labels.location=southamerica-east1 AND timestamp>=\"$start_time\"" --limit=20 --format="table(timestamp.datetime,severity,textPayload)" 2>/dev/null || echo "Não foi possível obter logs"
-
-        # Verificar se o job terminou
         if [ "$status" = "SUCCEEDED" ]; then
-          echo "✅ Job concluído com sucesso!"
+          echo "✅ Migração concluída com sucesso!"
           exit 0
         elif [ "$status" = "FAILED" ]; then
-          echo "❌ Job falhou!"
-          echo "Detalhes da execução:"
-          gcloud run jobs executions describe "$job_id" --region=southamerica-east1 2>/dev/null || echo "Não foi possível obter detalhes"
+          echo "❌ Migração falhou!"
+
+          # Exibir logs de erro
+          echo "Logs de erro:"
+          gcloud logging read "resource.type=cloud_run_job AND resource.labels.job_name=pricing-migration-job AND resource.labels.location=southamerica-east1 AND severity>=ERROR" --limit=50 --format="table(timestamp.datetime,severity,textPayload)"
+
+          exit 1
+        elif [ "$status" = "CANCELLED" ]; then
+          echo "❌ Migração foi cancelada."
           exit 1
         fi
 
-        # Atualizar timestamp para próxima consulta
-        start_time=$(get_timestamp)
-        sleep 30
+        attempt=$((attempt + 1))
+        sleep 10
       done
 
-      echo "⚠️ Timeout ao aguardar conclusão do job."
-      echo "Verifique os logs manualmente no Console do Cloud Run."
+      echo "❌ Timeout ao esperar pela migração."
       exit 1
   waitFor: ['executar-migracoes']
-  timeout: '1800s'  # 30 minutos de timeout
+  timeout: '1800s'  # 30 minutos
 
-timeout: '2400s'  # 40 minutos de timeout global
+timeout: '2000s'  # Timeout global
 
 options:
   logging: CLOUD_LOGGING_ONLY
