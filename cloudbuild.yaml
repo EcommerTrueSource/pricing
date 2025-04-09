@@ -51,7 +51,7 @@ steps:
       # Iniciar o Cloud SQL Proxy em background
       echo "Iniciando Cloud SQL Proxy..."
       ./cloud_sql_proxy -instances=${PROJECT_ID}:southamerica-east1:pricing=tcp:5432 &
-      PROXY_PID=$!
+      PROXY_PID=$$!
 
       # Verificar se o proxy iniciou corretamente
       sleep 5
