@@ -117,7 +117,7 @@ steps:
 
       echo "==== PROCESSO DE MIGRAÇÃO CONCLUÍDO ===="
 
-# Verificar se a aplicação está saudável (com mais detalhes)
+## Verificar se a aplicação está saudável (com mais detalhes)
 - name: 'gcr.io/cloud-builders/curl'
   id: 'health-check'
   entrypoint: bash
