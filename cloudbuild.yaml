@@ -90,9 +90,6 @@ steps:
 
       # Acessar o secret para a URL do banco de dados (diretamente, sem variáveis intermediárias)
       echo "Recuperando segredo da URL do banco de dados..."
-
-      # Verificar conexão com o banco antes de prosseguir
-      echo "Verificando conexão com o banco de dados..."
       gcloud secrets versions access latest --secret="database_url_pricing" > /tmp/db_url
 
       # Verificar se o arquivo existe e tem conteúdo
@@ -101,18 +98,28 @@ steps:
         exit 1
       fi
 
-      # Usar o arquivo diretamente sem variáveis
-      cat /tmp/db_url | npx prisma db pull --schema=./prisma/schema.prisma || {
+      # Definir a variável DATABASE_URL explicitamente para o Prisma
+      echo "Definindo variável DATABASE_URL para o Prisma..."
+      export DATABASE_URL=$(cat /tmp/db_url)
+
+      # Verificar se a variável foi definida corretamente
+      echo "Verificando se DATABASE_URL foi definida (exibindo apenas os primeiros caracteres):"
+      echo "${DATABASE_URL:0:15}...${DATABASE_URL: -15}" # Mostra apenas o início e final da URL para segurança
+
+      # Verificar conexão com o banco antes de prosseguir
+      echo "Verificando conexão com o banco de dados..."
+      npx prisma db pull --schema=./prisma/schema.prisma || {
         echo "ERRO: Não foi possível conectar ao banco de dados. Verificando status do proxy:"
         ps -p $(cat /tmp/proxy.pid) || true
         echo "Tentando executar um diagnóstico de rede:"
+        apt-get install -y -qq net-tools # Instalar netstat
         netstat -tuln | grep 5432 || true
         exit 1
       }
 
-      # Executar migração usando o arquivo diretamente
+      # Executar migração usando a variável DATABASE_URL exportada
       echo "Executando migração do Prisma..."
-      cat /tmp/db_url | DATABASE_URL=$(cat) npx prisma migrate deploy
+      npx prisma migrate deploy
 
       migration_status=$?
       if [ $migration_status -eq 0 ]; then
