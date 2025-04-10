@@ -59,21 +59,20 @@ steps:
   args:
     - '-c'
     - |
-      # Configurar variáveis de ambiente para o Prisma
-      export PGUSER=$(cat /workspace/secrets/db_user)
-      export PGPASSWORD=$(cat /workspace/secrets/db_password)
-      export PGDATABASE=$(cat /workspace/secrets/db_name)
-      export PGHOST=localhost
-      export PGPORT=5432
+      # Ler as credenciais dos arquivos
+      DB_USER=$(cat /workspace/secrets/db_user)
+      DB_PASSWORD=$(cat /workspace/secrets/db_password)
+      DB_NAME=$(cat /workspace/secrets/db_name)
 
-      # Formar URL de conexão para o Prisma
-      export DATABASE_URL="postgresql://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/${PGDATABASE}?schema=public"
-
-      # Verificar conexão
-      echo "Verificando conexão com o banco de dados..."
+      # Executar o comando Prisma diretamente passando a string de conexão
       cd /app
-      npx prisma db pull --force --schema=/app/prisma/schema.prisma
 
+      # Verificar conexão primeiro
+      echo "Verificando conexão com o banco de dados..."
+      npx prisma db pull --force --schema=/app/prisma/schema.prisma \
+        --url="postgresql://$DB_USER:$DB_PASSWORD@localhost:5432/$DB_NAME?schema=public"
+
+      # Verificar status da verificação
       if [ $? -ne 0 ]; then
         echo "Erro ao conectar ao banco de dados. Verificando detalhes..."
         nc -vz localhost 5432
@@ -82,9 +81,10 @@ steps:
 
       # Executar migração
       echo "Executando migração..."
-      cd /app
-      npx prisma migrate deploy --schema=/app/prisma/schema.prisma
+      npx prisma migrate deploy --schema=/app/prisma/schema.prisma \
+        --url="postgresql://$DB_USER:$DB_PASSWORD@localhost:5432/$DB_NAME?schema=public"
 
+      # Verificar resultado da migração
       if [ $? -eq 0 ]; then
         echo "✅ Migração concluída com sucesso"
       else
