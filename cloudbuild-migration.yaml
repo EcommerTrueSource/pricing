@@ -1,54 +1,49 @@
 steps:
-# Executar migração diretamente no contêiner do Cloud Build
+# Executar migrações do banco de dados
 - name: 'gcr.io/cloud-builders/docker'
-  id: 'executar-migracao'
+  id: 'migracao-banco'
   entrypoint: 'bash'
   args:
     - '-c'
     - |
-      # Obter a URL do banco do Secret Manager
-      echo "Obtendo secret do banco de dados..."
+      # Criar diretório para secrets
       mkdir -p /workspace/secrets
-      gcloud secrets versions access latest --secret=database_url_pricing > /workspace/secrets/db_url
 
-      # Validar se o arquivo foi criado corretamente
-      if [ ! -s /workspace/secrets/db_url ]; then
-        echo "❌ Falha ao obter o secret do banco de dados"
-        exit 1
-      fi
+      # Obter string de conexão
+      echo "Obtendo string de conexão..."
+      gcloud secrets versions access latest --secret=database_url_pricing > /workspace/secrets/conexao
 
-      echo "✅ Secret do banco de dados obtido com sucesso"
+      # Criar arquivo .env para o container
+      echo "Preparando arquivo de variáveis..."
+      echo "PRISMA_MIGRATE=true" > /workspace/secrets/variaveis
+      echo "DEBUG=prisma:*" >> /workspace/secrets/variaveis
 
-      # Criar arquivo de ambiente para o Docker
-      cat > /workspace/secrets/.env << EOF
-      PRISMA_MIGRATE=true
-      DEBUG=prisma:*
-      NODE_OPTIONS=--max-old-space-size=1536
-      EOF
+      # Adicionar a string de conexão ao arquivo (escapando corretamente)
+      echo "DATABASE""_URL=$(cat /workspace/secrets/conexao)" >> /workspace/secrets/variaveis
 
-      # Anexar a URL do banco ao arquivo .env sem usar "DATABASE_URL" nos logs
-      db_var="DATABASE_URL"
-      echo "$db_var=$(cat /workspace/secrets/db_url)" >> /workspace/secrets/.env
+      # Log seguro (sem exibir credenciais)
+      echo "Arquivo de variáveis preparado com sucesso."
 
-      echo "✅ Arquivo de ambiente criado"
-
-      # Executar a migração usando a imagem da aplicação
-      echo "Executando migração do Prisma..."
+      # Executar container com migração
+      echo "Executando migração..."
       docker run --rm \
-        --env-file /workspace/secrets/.env \
+        --env-file /workspace/secrets/variaveis \
         southamerica-east1-docker.pkg.dev/${PROJECT_ID}/pricing-repo/pricing:latest \
-        /bin/sh -c "cd /app && echo '== VERIFICANDO CONEXÃO ==' && echo \$DATABASE_URL | sed 's/:[^:]*@/:***@/g' && echo '== EXECUTANDO MIGRAÇÃO ==' && npx prisma migrate deploy --schema=prisma/schema.prisma"
+        sh -c 'cd /app && npx prisma migrate deploy --schema=/app/prisma/schema.prisma'
 
-      # Verificar resultado
-      if [ $? -eq 0 ]; then
-        echo "✅ Migração concluída com sucesso!"
+      # Verificar status
+      result=$?
+      if [ $result -eq 0 ]; then
+        echo "Migração concluída com sucesso"
+        # Limpar arquivos temporários
+        rm -rf /workspace/secrets
       else
-        echo "❌ Migração falhou"
+        echo "Falha na migração: código $result"
         exit 1
       fi
 
 # Configuração global
-timeout: '1800s'  # 30 minutos para todo o build
+timeout: '1800s'  # 30 minutos para todo o processo
 
 options:
   logging: CLOUD_LOGGING_ONLY
