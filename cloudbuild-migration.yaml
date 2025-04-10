@@ -1,7 +1,7 @@
 steps:
-# Executar migrações do banco de dados
+# Obter credenciais do banco de dados do Secret Manager
 - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
-  id: 'migracao-banco'
+  id: 'obter-credenciais'
   entrypoint: 'bash'
   args:
     - '-c'
@@ -9,61 +9,106 @@ steps:
       # Criar diretório para secrets
       mkdir -p /workspace/secrets
 
-      # Obter string de conexão
-      echo "Obtendo string de conexão..."
-      gcloud secrets versions access latest --secret=database_url_pricing > /workspace/secrets/conexao
+      # Obter senha do banco de dados
+      echo "Obtendo senha do banco de dados..."
+      gcloud secrets versions access latest --secret=pricing_db_password > /workspace/secrets/db_password
 
-      # Verificar se a conexão foi obtida com sucesso
-      if [ ! -s /workspace/secrets/conexao ]; then
-        echo "Erro: Não foi possível obter a string de conexão do banco de dados"
+      # Obter usuário do banco (ou usar padrão se não existir)
+      gcloud secrets versions access latest --secret=pricing_db_user > /workspace/secrets/db_user 2>/dev/null || echo "postgres" > /workspace/secrets/db_user
+
+      # Obter nome do banco (ou usar padrão se não existir)
+      gcloud secrets versions access latest --secret=pricing_db_name > /workspace/secrets/db_name 2>/dev/null || echo "pricing" > /workspace/secrets/db_name
+
+      echo "Credenciais obtidas com sucesso"
+
+# Iniciar o Cloud SQL Proxy
+- name: 'gcr.io/cloudsql-docker/gce-proxy:latest'
+  id: 'iniciar-sql-proxy'
+  entrypoint: '/bin/sh'
+  args:
+    - '-c'
+    - |
+      # Criar diretório para o socket do Cloud SQL
+      mkdir -p /workspace/cloudsql
+
+      # Iniciar o proxy em background
+      /cloud_sql_proxy \
+        --dir=/workspace/cloudsql \
+        --instances=${PROJECT_ID}:southamerica-east1:pricing=tcp:5432 \
+        --daemon \
+        --quiet
+
+      echo "Cloud SQL Proxy iniciado em background"
+
+      # Esperar o proxy iniciar completamente
+      sleep 3
+
+      # Verificar se o proxy está escutando
+      if ! netstat -tulpn | grep :5432 > /dev/null; then
+        echo "Erro: Cloud SQL Proxy não está escutando na porta 5432"
         exit 1
       fi
 
-      # Validar formato da string de conexão (sem exibir conteúdo)
-      DB_URL=$(cat /workspace/secrets/conexao)
-      if [[ ! "$DB_URL" =~ ^postgresql:// ]]; then
-        echo "Erro: String de conexão não está no formato esperado (deve começar com postgresql://)"
+      echo "Cloud SQL Proxy verificado e está em execução"
+
+# Executar migrações do Prisma
+- name: 'southamerica-east1-docker.pkg.dev/${PROJECT_ID}/pricing-repo/pricing:latest'
+  id: 'executar-migracao'
+  waitFor: ['obter-credenciais', 'iniciar-sql-proxy']
+  entrypoint: 'sh'
+  args:
+    - '-c'
+    - |
+      # Configurar variáveis de ambiente para o Prisma
+      export PGUSER=$(cat /workspace/secrets/db_user)
+      export PGPASSWORD=$(cat /workspace/secrets/db_password)
+      export PGDATABASE=$(cat /workspace/secrets/db_name)
+      export PGHOST=localhost
+      export PGPORT=5432
+
+      # Formar URL de conexão para o Prisma
+      export DATABASE_URL="postgresql://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/${PGDATABASE}?schema=public"
+
+      # Verificar conexão
+      echo "Verificando conexão com o banco de dados..."
+      cd /app
+      npx prisma db pull --force --schema=/app/prisma/schema.prisma
+
+      if [ $? -ne 0 ]; then
+        echo "Erro ao conectar ao banco de dados. Verificando detalhes..."
+        nc -vz localhost 5432
         exit 1
       fi
 
-      # Verifica se tem host na string
-      if [[ ! "$DB_URL" =~ postgresql://[^/]+@[^/]+ ]]; then
-        echo "Erro: String de conexão não contém informações de host válidas"
-        exit 1
-      fi
-
-      echo "String de conexão validada com sucesso"
-
-      # Criar arquivo .env dentro de um volume temporário para o Docker
-      echo "Preparando ambiente para migração..."
-      mkdir -p /workspace/prisma-env
-      echo "$DB_URL" > /workspace/prisma-env/database_url
-
-      # Executar container com migração montando volume
+      # Executar migração
       echo "Executando migração..."
-      docker run --rm \
-        -v /workspace/prisma-env:/prisma-env \
-        --entrypoint sh \
-        southamerica-east1-docker.pkg.dev/${PROJECT_ID}/pricing-repo/pricing:latest \
-        -c 'export DATABASE_URL=$(cat /prisma-env/database_url) && cd /app && echo "Database URL configurada" && npx prisma migrate deploy --schema=/app/prisma/schema.prisma'
+      cd /app
+      npx prisma migrate deploy --schema=/app/prisma/schema.prisma
 
-      # Verificar status
-      result=$?
-      if [ $result -eq 0 ]; then
-        echo "Migração concluída com sucesso"
-        # Limpar arquivos temporários
-        rm -rf /workspace/secrets /workspace/prisma-env
+      if [ $? -eq 0 ]; then
+        echo "✅ Migração concluída com sucesso"
       else
-        echo "Falha na migração: código $result"
-        # Tentar obter mais detalhes sobre o erro
-        echo "Tentando executar verificação da conexão..."
-        docker run --rm \
-          -v /workspace/prisma-env:/prisma-env \
-          --entrypoint sh \
-          southamerica-east1-docker.pkg.dev/${PROJECT_ID}/pricing-repo/pricing:latest \
-          -c 'export DATABASE_URL=$(cat /prisma-env/database_url) && cd /app && echo "Verificando conexão..." && npx prisma db pull --force --schema=/app/prisma/schema.prisma'
+        echo "❌ Falha na migração"
         exit 1
       fi
+
+# Limpeza
+- name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+  id: 'limpeza'
+  waitFor: ['executar-migracao']
+  entrypoint: 'bash'
+  args:
+    - '-c'
+    - |
+      echo "Realizando limpeza..."
+
+      # Encerrar o Cloud SQL Proxy
+      pkill -f cloud_sql_proxy || true
+
+      # Remover diretórios temporários
+      rm -rf /workspace/secrets /workspace/cloudsql
+
+      echo "Limpeza concluída"
 
 # Configuração global
 timeout: '1800s'  # 30 minutos para todo o processo
