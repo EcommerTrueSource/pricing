@@ -1,35 +1,56 @@
 steps:
-# Etapa 1: Obter o secret DATABASE_URL
-- name: 'gcr.io/google.com/cloudsdktool/cloud-sdk:slim'
-  id: 'obter-secret'
+# Etapa única: Configurar Cloud SQL Proxy e executar migração
+- name: 'gcr.io/google.com/cloudsdktool/cloud-sdk:latest'
+  id: 'migrar-prisma'
   entrypoint: 'bash'
   args:
     - '-c'
     - |
-      # Obter a string de conexão do banco de dados
-      echo "Obtendo string de conexão..."
-      mkdir -p /workspace/secrets
-      gcloud secrets versions access latest --secret=database_url_pricing > /workspace/secrets/db_url_original
+      # Instalar o Cloud SQL Proxy
+      echo "Instalando Cloud SQL Proxy..."
+      wget https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.6.1/cloud-sql-proxy.linux.amd64 -O cloud_sql_proxy
+      chmod +x cloud_sql_proxy
 
-      # Configurar a string de conexão correta para o Prisma com Cloud SQL
-      echo "postgresql://pricing-system:True@%23012987@localhost:5432/contract-management?schema=public" > /workspace/secrets/db_url
+      # Iniciar o Cloud SQL Proxy em segundo plano
+      echo "Iniciando Cloud SQL Proxy..."
+      ./cloud_sql_proxy --instances=${PROJECT_ID}:southamerica-east1:pricing=tcp:5432 --quiet &
+      PROXY_PID=$!
 
-      echo "String de conexão preparada para migração"
+      # Aguardar o proxy iniciar
+      echo "Aguardando inicialização do proxy..."
+      sleep 5
 
-# Etapa 2: Executar a migração com o Prisma
-- name: 'southamerica-east1-docker.pkg.dev/${PROJECT_ID}/pricing-repo/pricing:latest'
-  id: 'prisma-migrate'
-  waitFor: ['obter-secret']
-  entrypoint: 'sh'
-  args:
-    - '-c'
-    - |
-      # Executar a migração usando o arquivo de conexão
+      # Verificar se o proxy está escutando
+      if ! netstat -tulpn | grep :5432 > /dev/null; then
+        echo "Erro: Cloud SQL Proxy não está escutando na porta 5432"
+        kill $PROXY_PID
+        exit 1
+      fi
+
+      echo "Cloud SQL Proxy configurado com sucesso"
+
+      # Executar o Prisma Migrate usando Docker com a rede host
       echo "Executando migração do Prisma..."
-      cd /app
-      export DATABASE_URL=$(cat /workspace/secrets/db_url)
-      echo "String de conexão configurada para localhost."
-      npx prisma migrate deploy --schema=/app/prisma/schema.prisma
+      docker run --network=host --rm \
+        -e DATABASE_URL="postgresql://pricing-system:True@%23012987@localhost:5432/contract-management?schema=public" \
+        southamerica-east1-docker.pkg.dev/${PROJECT_ID}/pricing-repo/pricing:latest \
+        sh -c "cd /app && npx prisma migrate deploy --schema=/app/prisma/schema.prisma"
+
+      # Capturar o código de saída
+      RESULT=$?
+
+      # Encerrar o proxy
+      echo "Encerrando Cloud SQL Proxy..."
+      kill $PROXY_PID
+
+      # Retornar o resultado do comando de migração
+      if [ $RESULT -eq 0 ]; then
+        echo "✅ Migração concluída com sucesso"
+        exit 0
+      else
+        echo "❌ Falha na migração"
+        exit 1
+      fi
 
 # Configuração global
 timeout: '1800s'
