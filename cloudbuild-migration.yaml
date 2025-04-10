@@ -1,61 +1,16 @@
 steps:
-# Executar migrações com Cloud SQL Proxy (tudo em uma única etapa)
-- name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
-  id: 'migracao-prisma'
+# Usar uma única etapa direta
+- name: 'southamerica-east1-docker.pkg.dev/${PROJECT_ID}/pricing-repo/pricing:latest'
+  id: 'prisma-migrate'
   entrypoint: 'bash'
   args:
     - '-c'
     - |
-      # 1. Obter credenciais
-      echo "Obtendo credenciais..."
-      mkdir -p /workspace/secrets
-      gcloud secrets versions access latest --secret=pricing_db_password > /workspace/secrets/db_password
-      gcloud secrets versions access latest --secret=pricing_db_user > /workspace/secrets/db_user 2>/dev/null || echo "postgres" > /workspace/secrets/db_user
-      gcloud secrets versions access latest --secret=pricing_db_name > /workspace/secrets/db_name 2>/dev/null || echo "pricing" > /workspace/secrets/db_name
-
-      # 2. Preparar string de conexão
-      echo -n "postgresql://" > /workspace/secrets/connection_string
-      cat /workspace/secrets/db_user >> /workspace/secrets/connection_string
-      echo -n ":" >> /workspace/secrets/connection_string
-      cat /workspace/secrets/db_password >> /workspace/secrets/connection_string
-      echo -n "@127.0.0.1:5432/" >> /workspace/secrets/connection_string
-      cat /workspace/secrets/db_name >> /workspace/secrets/connection_string
-      echo "?schema=public" >> /workspace/secrets/connection_string
-
-      # 3. Baixar e iniciar Cloud SQL Proxy
-      echo "Iniciando Cloud SQL Proxy..."
-      curl -o /workspace/cloud_sql_proxy https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.6.1/cloud-sql-proxy.linux.amd64
-      chmod +x /workspace/cloud_sql_proxy
-      /workspace/cloud_sql_proxy --instances=${PROJECT_ID}:southamerica-east1:pricing=tcp:5432 --quiet &
-      PROXY_PID=$!
-
-      # Aguardar proxy iniciar
-      echo "Aguardando inicialização do proxy..."
-      sleep 5
-
-      # 4. Executar migração com a imagem do Prisma
-      echo "Executando migração..."
-      CONNECTION_URL=$(cat /workspace/secrets/connection_string)
-      docker run --network="host" --rm \
-        southamerica-east1-docker.pkg.dev/${PROJECT_ID}/pricing-repo/pricing:latest \
-        sh -c "cd /app && DATABASE_URL=\"$CONNECTION_URL\" npx prisma migrate deploy --schema=/app/prisma/schema.prisma"
-
-      # Verificar resultado
-      RESULT=$?
-
-      # 5. Encerrar o proxy e limpar
-      echo "Finalizando Cloud SQL Proxy..."
-      kill $PROXY_PID
-      rm -rf /workspace/secrets /workspace/cloud_sql_proxy
-
-      # Reportar resultado
-      if [ $RESULT -eq 0 ]; then
-        echo "✅ Migração concluída com sucesso"
-        exit 0
-      else
-        echo "❌ Falha na migração"
-        exit 1
-      fi
+      # Executar a migração usando diretamente o secret como DATABASE_URL
+      echo "Executando migração do Prisma"
+      cd /app
+      export DATABASE_URL=$(gcloud secrets versions access latest --secret=database_url_pricing)
+      npx prisma migrate deploy --schema=/app/prisma/schema.prisma
 
 # Configuração global
 timeout: '1800s'
@@ -63,4 +18,3 @@ timeout: '1800s'
 options:
   logging: CLOUD_LOGGING_ONLY
   machineType: 'E2_HIGHCPU_8'
-  dynamic_substitutions: true
