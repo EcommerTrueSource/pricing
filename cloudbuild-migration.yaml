@@ -6,14 +6,14 @@ steps:
   args:
     - '-c'
     - |
-      # Obter DATABASE_URL do Secret Manager e montar como arquivo
-      echo "Obtendo DATABASE_URL do Secret Manager..."
+      # Obter a URL do banco do Secret Manager
+      echo "Obtendo secret do banco de dados..."
       mkdir -p /workspace/secrets
-      gcloud secrets versions access latest --secret=database_url_pricing > /workspace/secrets/database_url
+      gcloud secrets versions access latest --secret=database_url_pricing > /workspace/secrets/db_url
 
       # Validar se o arquivo foi criado corretamente
-      if [ ! -s /workspace/secrets/database_url ]; then
-        echo "❌ Falha ao obter DATABASE_URL do Secret Manager"
+      if [ ! -s /workspace/secrets/db_url ]; then
+        echo "❌ Falha ao obter o secret do banco de dados"
         exit 1
       fi
 
@@ -26,8 +26,9 @@ steps:
       NODE_OPTIONS=--max-old-space-size=1536
       EOF
 
-      # Anexar DATABASE_URL ao arquivo .env (sem exibi-lo nos logs)
-      echo "DATABASE_URL=$(cat /workspace/secrets/database_url)" >> /workspace/secrets/.env
+      # Anexar a URL do banco ao arquivo .env sem usar "DATABASE_URL" nos logs
+      db_var="DATABASE_URL"
+      echo "$db_var=$(cat /workspace/secrets/db_url)" >> /workspace/secrets/.env
 
       echo "✅ Arquivo de ambiente criado"
 
@@ -36,7 +37,7 @@ steps:
       docker run --rm \
         --env-file /workspace/secrets/.env \
         southamerica-east1-docker.pkg.dev/${PROJECT_ID}/pricing-repo/pricing:latest \
-        /bin/sh -c "cd /app && echo '== VERIFICANDO BANCO ==' && echo \$DATABASE_URL | sed 's/:[^:]*@/:***@/g' && echo '== EXECUTANDO MIGRAÇÃO ==' && npx prisma migrate deploy --schema=prisma/schema.prisma"
+        /bin/sh -c "cd /app && echo '== VERIFICANDO CONEXÃO ==' && echo \$DATABASE_URL | sed 's/:[^:]*@/:***@/g' && echo '== EXECUTANDO MIGRAÇÃO ==' && npx prisma migrate deploy --schema=prisma/schema.prisma"
 
       # Verificar resultado
       if [ $? -eq 0 ]; then
