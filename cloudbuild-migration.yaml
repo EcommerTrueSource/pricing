@@ -1,101 +1,40 @@
 steps:
-# Executar migrações do Prisma diretamente no Cloud Build
+# Configurar job de migração
 - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
-  id: 'executar-migracao-prisma'
-  entrypoint: 'bash'
+  id: 'configurar-job-migracao'
+  entrypoint: 'gcloud'
   args:
-    - '-c'
-    - |
-      # Criar um arquivo temporário para o .env
-      echo "Configurando variáveis de ambiente para migração..."
-      env_file="/workspace/.env.migration"
+    - 'run'
+    - 'jobs'
+    - 'deploy'
+    - 'pricing-migration-job'
+    - '--region=southamerica-east1'
+    - '--image=southamerica-east1-docker.pkg.dev/${PROJECT_ID}/pricing-repo/pricing:latest'
+    - '--memory=2Gi'
+    - '--cpu=2'
+    - '--max-retries=3'
+    - '--task-timeout=30m'
+    - '--set-cloudsql-instances=${PROJECT_ID}:southamerica-east1:pricing'
+    - '--service-account=pricing-contract@${PROJECT_ID}.iam.gserviceaccount.com'
+    - '--set-env-vars=PRISMA_MIGRATE=true,NODE_OPTIONS=--max-old-space-size=1536,DEBUG=prisma:*'
+    - '--set-secrets=DATABASE_URL=database_url_pricing:latest,DOTENV_PATH=/secrets/.env.local,/secrets/.env.local=env_pricing:latest'
 
-      # Obter secrets do Secret Manager
-      echo "Obtendo secrets do Secret Manager..."
-      gcloud secrets versions access latest --secret=env_pricing > ${env_file}
-
-      # Obter a URL do banco de dados separadamente
-      echo "Obtendo URL do banco de dados..."
-      gcloud secrets versions access latest --secret=database_url_pricing > /workspace/db_url.txt
-
-      # Converter URL para formato otimizado para Cloud SQL
-      db_url=$(cat /workspace/db_url.txt)
-      echo "Verificando formato da URL do banco..."
-
-      if [[ ! "$db_url" =~ ^(postgresql|postgres):// ]]; then
-        echo "❌ ERRO: A URL do banco não está no formato correto. Deve começar com postgresql:// ou postgres://"
-        echo "URL atual (primeiros caracteres): ${db_url:0:15}..."
-        exit 1
-      fi
-
-      # Extrair partes da URL e reconstruir no formato otimizado
-      if [[ "$db_url" =~ socket=\/cloudsql\/([^&]*) ]]; then
-        instance_name="${BASH_REMATCH[1]}"
-        echo "✅ Encontrada instância Cloud SQL: $instance_name"
-
-        # Extrair usuário, senha e banco de dados
-        if [[ "$db_url" =~ postgresql://([^:]+):([^@]+)@[^/]+/([^?]+) ]]; then
-          db_user="${BASH_REMATCH[1]}"
-          db_pass="${BASH_REMATCH[2]}"
-          db_name="${BASH_REMATCH[3]}"
-
-          # Construir nova URL otimizada
-          optimized_url="postgresql://$db_user:$db_pass@/$db_name?host=/cloudsql/$instance_name&schema=public"
-          echo "✅ URL otimizada para Cloud SQL (formato seguro)"
-
-          # Atualizar URL
-          db_url="$optimized_url"
-        fi
-      fi
-
-      # Adicionar a URL do banco ao arquivo .env
-      echo "DATABASE_URL=$db_url" >> ${env_file}
-
-      # Verificar se os secrets foram obtidos corretamente
-      if [ ! -s ${env_file} ]; then
-        echo "❌ Falha ao obter secrets necessários"
-        exit 1
-      fi
-
-      # Validar se DATABASE_URL está presente no arquivo
-      if ! grep -q "DATABASE_URL" ${env_file}; then
-        echo "❌ Variável DATABASE_URL não encontrada no arquivo de ambiente"
-        exit 1
-      fi
-
-      echo "✅ Secrets obtidos com sucesso"
-      echo "✅ Conteúdo do arquivo .env (exemplo das primeiras linhas):"
-      head -n 3 ${env_file} | grep -v "PASSWORD\|SECRET\|KEY"
-
-      # Executar migração usando a imagem mais recente
-      echo "Executando migração do Prisma..."
-
-      # Usar a imagem do container para executar a migração
-      docker run --rm \
-        --env-file ${env_file} \
-        --env PRISMA_MIGRATE=true \
-        --env DEBUG=prisma:* \
-        --env NODE_OPTIONS=--max-old-space-size=1536 \
-        southamerica-east1-docker.pkg.dev/${PROJECT_ID}/pricing-repo/pricing:latest \
-        /bin/sh -c "cd /app && echo 'DATABASE_URL formato: ' \$(echo \$DATABASE_URL | sed 's/:[^:]*@/:***@/g') && npx prisma migrate deploy"
-
-      # Verificar resultado
-      result_code=$?
-      if [ $result_code -eq 0 ]; then
-        echo "✅ Migração concluída com sucesso!"
-        # Limpar arquivos temporários
-        rm ${env_file} /workspace/db_url.txt
-        exit 0
-      else
-        echo "❌ Migração falhou com código de saída: $result_code"
-        # Limpar arquivos temporários
-        rm ${env_file} /workspace/db_url.txt
-        exit 1
-      fi
-  timeout: '900s'  # 15 minutos
+# Executar job de migração
+- name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+  id: 'executar-migracao'
+  entrypoint: 'gcloud'
+  args:
+    - 'run'
+    - 'jobs'
+    - 'execute'
+    - 'pricing-migration-job'
+    - '--region=southamerica-east1'
+    - '--wait'
+  waitFor: ['configurar-job-migracao']
+  timeout: '1800s'  # 30 minutos de timeout
 
 # Configuração global
-timeout: '1200s'  # 20 minutos para todo o build
+timeout: '2400s'  # 40 minutos para todo o build
 
 options:
   logging: CLOUD_LOGGING_ONLY
