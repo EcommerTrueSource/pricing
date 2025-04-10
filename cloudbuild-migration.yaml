@@ -1,42 +1,49 @@
 steps:
-# Configurar job de migração com diagnóstico
+# Passo 1: Obter secrets do Secret Manager
 - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
-  id: 'configurar-job-migracao'
-  entrypoint: 'gcloud'
+  id: 'obter-secrets'
+  entrypoint: 'bash'
   args:
-    - 'run'
-    - 'jobs'
-    - 'deploy'
-    - 'pricing-migration-job'
-    - '--region=southamerica-east1'
-    - '--image=southamerica-east1-docker.pkg.dev/${PROJECT_ID}/pricing-repo/pricing:latest'
-    - '--memory=2Gi'
-    - '--cpu=2'
-    - '--max-retries=3'
-    - '--task-timeout=30m'
-    - '--set-cloudsql-instances=${PROJECT_ID}:southamerica-east1:pricing'
-    - '--service-account=pricing-contract@${PROJECT_ID}.iam.gserviceaccount.com'
-    - '--set-secrets=/secrets/.env.local=env_pricing:latest,DATABASE_URL=database_url_pricing:latest'
-    - '--set-env-vars=PRISMA_MIGRATE=true,NODE_OPTIONS=--max-old-space-size=1536,DEBUG=prisma:*,DOTENV_PATH=/secrets/.env.local'
-    - '--command=/bin/sh'
-    - '--args=-c "cd /app && echo \"== DIAGNÓSTICO ==\" && pwd && ls -la && echo \"== VARIÁVEIS DE AMBIENTE ==\" && printenv | grep -E \"DATABASE_URL|DOTENV_PATH|PRISMA\" && echo \"== MIGRAÇÃO ==\" && npx prisma migrate deploy"'
+    - '-c'
+    - |
+      # Criar diretório temporário para as configurações
+      mkdir -p /workspace/configs
 
-# Executar job de migração
-- name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+      # Obter DATABASE_URL do Secret Manager
+      echo "Obtendo DATABASE_URL do Secret Manager..."
+      gcloud secrets versions access latest --secret=database_url_pricing > /workspace/configs/database_url
+
+      # Verificar se conseguimos obter a URL do banco
+      if [ ! -s /workspace/configs/database_url ]; then
+        echo "❌ Falha ao obter DATABASE_URL do Secret Manager"
+        exit 1
+      fi
+
+      echo "✅ Secrets obtidos com sucesso"
+      echo "DATABASE_URL formato: $(cat /workspace/configs/database_url | sed 's/:[^:]*@/:***@/g')"
+
+# Passo 2: Executar migração diretamente usando a imagem da aplicação
+- name: 'docker'
   id: 'executar-migracao'
-  entrypoint: 'gcloud'
   args:
     - 'run'
-    - 'jobs'
-    - 'execute'
-    - 'pricing-migration-job'
-    - '--region=southamerica-east1'
-    - '--wait'
-  waitFor: ['configurar-job-migracao']
-  timeout: '1800s'  # 30 minutos de timeout
+    - '--rm'
+    - '-v'
+    - '/workspace/configs:/configs'
+    - '-e'
+    - 'DATABASE_URL=$(cat /configs/database_url)'
+    - '-e'
+    - 'PRISMA_MIGRATE=true'
+    - '-e'
+    - 'DEBUG=prisma:*'
+    - 'southamerica-east1-docker.pkg.dev/${PROJECT_ID}/pricing-repo/pricing:latest'
+    - '/bin/sh'
+    - '-c'
+    - 'cd /app && echo "== Verificando conexão com banco de dados ==" && echo $DATABASE_URL | sed "s/:[^:]*@/:***@/g" && echo "== Executando migração ==" && npx prisma migrate deploy --schema=prisma/schema.prisma'
+  waitFor: ['obter-secrets']
 
 # Configuração global
-timeout: '2400s'  # 40 minutos para todo o build
+timeout: '1800s'  # 30 minutos para todo o build
 
 options:
   logging: CLOUD_LOGGING_ONLY
