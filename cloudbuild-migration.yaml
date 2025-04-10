@@ -1,5 +1,5 @@
 steps:
-# Configurar job de migração
+# Configurar job de migração com diagnóstico
 - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
   id: 'configurar-job-migracao'
   entrypoint: 'gcloud'
@@ -18,6 +18,8 @@ steps:
     - '--service-account=pricing-contract@${PROJECT_ID}.iam.gserviceaccount.com'
     - '--set-secrets=/secrets/.env.local=env_pricing:latest,DATABASE_URL=database_url_pricing:latest'
     - '--set-env-vars=PRISMA_MIGRATE=true,NODE_OPTIONS=--max-old-space-size=1536,DEBUG=prisma:*,DOTENV_PATH=/secrets/.env.local'
+    - '--command=/bin/sh'
+    - '--args=-c "cd /app && echo \"== DIAGNÓSTICO ==\" && pwd && ls -la && echo \"== VARIÁVEIS DE AMBIENTE ==\" && printenv | grep -E \"DATABASE_URL|DOTENV_PATH|PRISMA\" && echo \"== MIGRAÇÃO ==\" && npx prisma migrate deploy"'
 
 # Executar job de migração
 - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
