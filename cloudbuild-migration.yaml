@@ -1,73 +1,39 @@
 steps:
-# Etapa única: Configurar Cloud SQL Proxy e executar migração
-- name: 'gcr.io/google.com/cloudsdktool/cloud-sdk:latest'
-  id: 'migrar-prisma'
-  entrypoint: 'bash'
-  args:
-    - '-c'
-    - |
-      # Baixar Cloud SQL Proxy
-      echo "Baixando Cloud SQL Proxy..."
-      curl -o cloud_sql_proxy https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.6.1/cloud-sql-proxy.linux.amd64
-      chmod +x cloud_sql_proxy
+  # Atualizar definição do job de migração
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: 'atualizar-job-migracao'
+    entrypoint: 'gcloud'
+    args:
+      - 'run'
+      - 'jobs'
+      - 'deploy'
+      - 'pricing-migration-job'  # Nome do job
+      - '--region=southamerica-east1'  # Mesma região do seu banco
+      - '--image=southamerica-east1-docker.pkg.dev/${PROJECT_ID}/pricing-repo/pricing:latest'
+      - '--memory=4Gi'
+      - '--cpu=4'
+      - '--max-retries=3'
+      - '--task-timeout=30m'
+      - '--set-cloudsql-instances=${PROJECT_ID}:southamerica-east1:pricing'
+      - '--set-env-vars=NODE_ENV=production'
+      - '--set-env-vars=DATABASE_URL=postgresql://${_DB_USER}:${_DB_PASSWORD}@localhost:5432/${_DB_NAME}?schema=public'
+      - '--command=cd,/app,&&,npx,prisma,migrate,deploy,--schema=/app/prisma/schema.prisma'
 
-      # Verificar se a porta 5432 está disponível
-      echo "Verificando disponibilidade da porta 5432..."
-      if lsof -i :5432 > /dev/null 2>&1; then
-        echo "ERRO: Porta 5432 já está em uso!"
-        exit 1
-      fi
+  # Executar migrações
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: 'executar-migracoes'
+    entrypoint: 'gcloud'
+    args:
+      - 'run'
+      - 'jobs'
+      - 'execute'
+      - 'pricing-migration-job'
+      - '--region=southamerica-east1'
+      - '--wait'
+    waitFor: ['atualizar-job-migracao']
+    timeout: '1800s'  # 30 minutos de timeout
 
-      # Iniciar o Cloud SQL Proxy com a sintaxe correta
-      echo "Iniciando Cloud SQL Proxy..."
-      ./cloud_sql_proxy --instances=${PROJECT_ID}:southamerica-east1:pricing=tcp:5432 &
-      PROXY_PID=$!
-      echo $PROXY_PID > /tmp/proxy_pid
-
-      # Aguardar o proxy iniciar
-      echo "Aguardando inicialização do proxy..."
-      sleep 10
-
-      # Verificar se o processo do proxy ainda está rodando
-      if ! ps -p $PROXY_PID > /dev/null; then
-        echo "Erro: Cloud SQL Proxy falhou ao iniciar"
-        exit 1
-      fi
-
-      # Verificar se a porta está ouvindo
-      if ! lsof -i :5432 > /dev/null 2>&1; then
-        echo "Erro: Cloud SQL Proxy não está escutando na porta 5432"
-        kill -9 $PROXY_PID || true
-        exit 1
-      fi
-
-      echo "Cloud SQL Proxy configurado com sucesso"
-
-      # Executar o Prisma Migrate usando Docker
-      echo "Executando migração do Prisma..."
-      docker run --network=host \
-        -e DATABASE_URL="postgresql://${_DB_USER}:${_DB_PASSWORD}@localhost:5432/${_DB_NAME}?schema=public" \
-        southamerica-east1-docker.pkg.dev/${PROJECT_ID}/pricing-repo/pricing:latest \
-        sh -c "cd /app && npx prisma migrate deploy --schema=/app/prisma/schema.prisma"
-
-      MIGRATION_RESULT=$?
-
-      # Encerrar o proxy
-      echo "Encerrando Cloud SQL Proxy..."
-      kill -9 $PROXY_PID || true
-
-      # Verificar o resultado
-      if [ "$MIGRATION_RESULT" = "0" ]; then
-        echo "✅ Migração concluída com sucesso"
-        exit 0
-      else
-        echo "❌ Falha na migração"
-        exit 1
-      fi
-
-# Configuração global
-timeout: '1800s'
-
+timeout: '2000s'  # Timeout global
 options:
   logging: CLOUD_LOGGING_ONLY
   machineType: 'E2_HIGHCPU_8'
