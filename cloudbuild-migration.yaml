@@ -9,7 +9,12 @@ steps:
       # Obter a string de conexão do banco de dados
       echo "Obtendo string de conexão..."
       mkdir -p /workspace/secrets
-      gcloud secrets versions access latest --secret=database_url_pricing > /workspace/secrets/db_url
+      gcloud secrets versions access latest --secret=database_url_pricing > /workspace/secrets/db_url_original
+
+      # Configurar a string de conexão correta para o Prisma com Cloud SQL
+      echo "postgresql://pricing-system:True@%23012987@localhost:5432/contract-management?schema=public" > /workspace/secrets/db_url
+
+      echo "String de conexão preparada para migração"
 
 # Etapa 2: Executar a migração com o Prisma
 - name: 'southamerica-east1-docker.pkg.dev/${PROJECT_ID}/pricing-repo/pricing:latest'
@@ -23,7 +28,7 @@ steps:
       echo "Executando migração do Prisma..."
       cd /app
       export DATABASE_URL=$(cat /workspace/secrets/db_url)
-      echo "String de conexão configurada."
+      echo "String de conexão configurada para localhost."
       npx prisma migrate deploy --schema=/app/prisma/schema.prisma
 
 # Configuração global
