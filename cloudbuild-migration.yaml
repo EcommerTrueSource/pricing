@@ -1,15 +1,29 @@
 steps:
-# Usar uma única etapa direta
+# Etapa 1: Obter o secret DATABASE_URL
+- name: 'gcr.io/google.com/cloudsdktool/cloud-sdk:slim'
+  id: 'obter-secret'
+  entrypoint: 'bash'
+  args:
+    - '-c'
+    - |
+      # Obter a string de conexão do banco de dados
+      echo "Obtendo string de conexão..."
+      mkdir -p /workspace/secrets
+      gcloud secrets versions access latest --secret=database_url_pricing > /workspace/secrets/db_url
+
+# Etapa 2: Executar a migração com o Prisma
 - name: 'southamerica-east1-docker.pkg.dev/${PROJECT_ID}/pricing-repo/pricing:latest'
   id: 'prisma-migrate'
+  waitFor: ['obter-secret']
   entrypoint: 'sh'
   args:
     - '-c'
     - |
-      # Executar a migração usando diretamente o secret como DATABASE_URL
-      echo "Executando migração do Prisma"
+      # Executar a migração usando o arquivo de conexão
+      echo "Executando migração do Prisma..."
       cd /app
-      export DATABASE_URL=$(gcloud secrets versions access latest --secret=database_url_pricing)
+      export DATABASE_URL=$(cat /workspace/secrets/db_url)
+      echo "String de conexão configurada."
       npx prisma migrate deploy --schema=/app/prisma/schema.prisma
 
 # Configuração global
