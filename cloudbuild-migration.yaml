@@ -1,6 +1,6 @@
 steps:
 # Executar migrações do banco de dados
-- name: 'gcr.io/cloud-builders/docker'
+- name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
   id: 'migracao-banco'
   entrypoint: 'bash'
   args:
@@ -13,21 +13,21 @@ steps:
       echo "Obtendo string de conexão..."
       gcloud secrets versions access latest --secret=database_url_pricing > /workspace/secrets/conexao
 
-      # Criar arquivo .env para o container
-      echo "Preparando arquivo de variáveis..."
-      echo "PRISMA_MIGRATE=true" > /workspace/secrets/variaveis
-      echo "DEBUG=prisma:*" >> /workspace/secrets/variaveis
+      # Verificar se a conexão foi obtida com sucesso
+      if [ ! -s /workspace/secrets/conexao ]; then
+        echo "Erro: Não foi possível obter a string de conexão do banco de dados"
+        exit 1
+      fi
 
-      # Adicionar a string de conexão ao arquivo (escapando corretamente)
-      echo "DATABASE""_URL=$(cat /workspace/secrets/conexao)" >> /workspace/secrets/variaveis
+      # Log de confirmação
+      echo "String de conexão obtida com sucesso"
 
-      # Log seguro (sem exibir credenciais)
-      echo "Arquivo de variáveis preparado com sucesso."
-
-      # Executar container com migração
+      # Executar container com migração usando a string de conexão diretamente
       echo "Executando migração..."
       docker run --rm \
-        --env-file /workspace/secrets/variaveis \
+        -e DATABASE_URL="$(cat /workspace/secrets/conexao)" \
+        -e PRISMA_MIGRATE=true \
+        -e DEBUG=prisma:* \
         southamerica-east1-docker.pkg.dev/${PROJECT_ID}/pricing-repo/pricing:latest \
         sh -c 'cd /app && npx prisma migrate deploy --schema=/app/prisma/schema.prisma'
 
@@ -39,6 +39,9 @@ steps:
         rm -rf /workspace/secrets
       else
         echo "Falha na migração: código $result"
+        # Imprimir logs do container para ajudar no debug
+        echo "Últimos logs do container:"
+        docker logs $(docker ps -lq) 2>&1 || echo "Não foi possível obter logs do container"
         exit 1
       fi
 
