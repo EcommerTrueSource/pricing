@@ -2,7 +2,7 @@ steps:
 # Usar uma única etapa direta
 - name: 'southamerica-east1-docker.pkg.dev/${PROJECT_ID}/pricing-repo/pricing:latest'
   id: 'prisma-migrate'
-  entrypoint: 'bash'
+  entrypoint: 'sh'
   args:
     - '-c'
     - |
