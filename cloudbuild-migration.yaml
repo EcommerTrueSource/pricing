@@ -11,10 +11,10 @@ steps:
       wget https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.6.1/cloud-sql-proxy.linux.amd64 -O cloud_sql_proxy
       chmod +x cloud_sql_proxy
 
-      # Iniciar o Cloud SQL Proxy em segundo plano
+      # Iniciar o Cloud SQL Proxy em segundo plano e guardar PID em arquivo
       echo "Iniciando Cloud SQL Proxy..."
       ./cloud_sql_proxy --instances=${PROJECT_ID}:southamerica-east1:pricing=tcp:5432 --quiet &
-      PROXY_PID=$!
+      echo $! > /tmp/proxy.pid
 
       # Aguardar o proxy iniciar
       echo "Aguardando inicialização do proxy..."
@@ -23,7 +23,7 @@ steps:
       # Verificar se o proxy está escutando
       if ! netstat -tulpn | grep :5432 > /dev/null; then
         echo "Erro: Cloud SQL Proxy não está escutando na porta 5432"
-        kill $PROXY_PID
+        kill $(cat /tmp/proxy.pid)
         exit 1
       fi
 
@@ -37,14 +37,14 @@ steps:
         sh -c "cd /app && npx prisma migrate deploy --schema=/app/prisma/schema.prisma"
 
       # Capturar o código de saída
-      RESULT=$?
+      MIGRATION_RESULT=$?
 
       # Encerrar o proxy
       echo "Encerrando Cloud SQL Proxy..."
-      kill $PROXY_PID
+      kill $(cat /tmp/proxy.pid)
 
       # Retornar o resultado do comando de migração
-      if [ $RESULT -eq 0 ]; then
+      if [ $MIGRATION_RESULT -eq 0 ]; then
         echo "✅ Migração concluída com sucesso"
         exit 0
       else
