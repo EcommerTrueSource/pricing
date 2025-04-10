@@ -1,23 +1,32 @@
 steps:
-  # Atualizar definição do job de migração
+  # Remover o job existente primeiro
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
-    id: 'atualizar-job-migracao'
+    id: 'remover-job-existente'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        gcloud run jobs delete pricing-migration-job --region=southamerica-east1 --quiet || echo "Job não existia"
+
+  # Recriar o job de migração
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: 'criar-job-migracao'
     entrypoint: 'gcloud'
     args:
       - 'run'
       - 'jobs'
       - 'deploy'
-      - 'pricing-migration-job'  # Nome do job
-      - '--region=southamerica-east1'  # Mesma região do seu banco
+      - 'pricing-migration-job'
+      - '--region=southamerica-east1'
       - '--image=southamerica-east1-docker.pkg.dev/${PROJECT_ID}/pricing-repo/pricing:latest'
       - '--memory=4Gi'
       - '--cpu=4'
       - '--max-retries=3'
       - '--task-timeout=30m'
       - '--set-cloudsql-instances=${PROJECT_ID}:southamerica-east1:pricing'
-      - '--set-env-vars=NODE_ENV=production'
-      - '--set-env-vars=DATABASE_URL=postgresql://${_DB_USER}:${_DB_PASSWORD}@localhost:5432/${_DB_NAME}?schema=public'
+      - '--set-env-vars=NODE_ENV=production,DATABASE_URL=postgresql://${_DB_USER}:${_DB_PASSWORD}@localhost:5432/${_DB_NAME}?schema=public'
       - '--command=cd,/app,&&,npx,prisma,migrate,deploy,--schema=/app/prisma/schema.prisma'
+    waitFor: ['remover-job-existente']
 
   # Executar migrações
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
@@ -30,10 +39,5 @@ steps:
       - 'pricing-migration-job'
       - '--region=southamerica-east1'
       - '--wait'
-    waitFor: ['atualizar-job-migracao']
-    timeout: '1800s'  # 30 minutos de timeout
-
-timeout: '2000s'  # Timeout global
-options:
-  logging: CLOUD_LOGGING_ONLY
-  machineType: 'E2_HIGHCPU_8'
+    waitFor: ['criar-job-migracao']
+    timeout: '1800s'
