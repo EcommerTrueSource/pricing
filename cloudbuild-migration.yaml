@@ -34,11 +34,12 @@ steps:
 
       echo "Executando migração do Prisma..."
       # Modifica a URL para usar localhost
-      LOCAL_DB_URL=$(echo $DATABASE_URL | sed 's/\/\/\(.*@\).*:/\/\/\1localhost:/')
+      DB_URL=$${DATABASE_URL}
+      LOCAL_DB_URL=$(echo $$DB_URL | sed 's/\/\/\(.*@\).*:/\/\/\1localhost:/')
 
       # Gera cliente e aplica migrações
       npx prisma generate
-      DATABASE_URL="$LOCAL_DB_URL" npx prisma migrate deploy
+      DATABASE_URL="$$LOCAL_DB_URL" npx prisma migrate deploy
 
       echo "✅ Migração concluída com sucesso!"
 
