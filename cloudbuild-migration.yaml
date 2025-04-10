@@ -18,31 +18,31 @@ steps:
 
       # Obter informações da imagem atual da aplicação
       IMAGE_NAME=$(gcloud run services describe pricing \
-        --region $REGION \
+        --region ${_REGION} \
         --format "value(spec.template.spec.containers[0].image)" | cut -d'@' -f1)
 
       echo "Usando imagem: $IMAGE_NAME"
 
       # Verificar se o job já existe
-      if gcloud run jobs describe prisma-migration-job --region $REGION &>/dev/null; then
+      if gcloud run jobs describe prisma-migration-job --region ${_REGION} &>/dev/null; then
         echo "Job existente encontrado, atualizando..."
         gcloud run jobs update prisma-migration-job \
-          --region $REGION \
+          --region ${_REGION} \
           --image $IMAGE_NAME \
           --command "npx" \
           --args "prisma,migrate,deploy" \
-          --set-cloudsql-instances $PROJECT_ID:$REGION:pricing \
-          --service-account=pricing-contract@$PROJECT_ID.iam.gserviceaccount.com \
+          --set-cloudsql-instances ${_PROJECT_ID}:${_REGION}:pricing \
+          --service-account=pricing-contract@${_PROJECT_ID}.iam.gserviceaccount.com \
           --set-secrets DATABASE_URL=pricing-database-url:latest
       else
         echo "Job não encontrado, criando..."
         gcloud run jobs create prisma-migration-job \
-          --region $REGION \
+          --region ${_REGION} \
           --image $IMAGE_NAME \
           --command "npx" \
           --args "prisma,migrate,deploy" \
-          --set-cloudsql-instances $PROJECT_ID:$REGION:pricing \
-          --service-account=pricing-contract@$PROJECT_ID.iam.gserviceaccount.com \
+          --set-cloudsql-instances ${_PROJECT_ID}:${_REGION}:pricing \
+          --service-account=pricing-contract@${_PROJECT_ID}.iam.gserviceaccount.com \
           --set-secrets DATABASE_URL=pricing-database-url:latest
       fi
 
