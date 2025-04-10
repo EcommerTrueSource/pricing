@@ -19,29 +19,49 @@ steps:
         exit 1
       fi
 
-      # Log de confirmação
-      echo "String de conexão obtida com sucesso"
+      # Validar formato da string de conexão (sem exibir conteúdo)
+      DB_URL=$(cat /workspace/secrets/conexao)
+      if [[ ! "$DB_URL" =~ ^postgresql:// ]]; then
+        echo "Erro: String de conexão não está no formato esperado (deve começar com postgresql://)"
+        exit 1
+      fi
 
-      # Executar container com migração usando a string de conexão diretamente
+      # Verifica se tem host na string
+      if [[ ! "$DB_URL" =~ postgresql://[^/]+@[^/]+ ]]; then
+        echo "Erro: String de conexão não contém informações de host válidas"
+        exit 1
+      fi
+
+      echo "String de conexão validada com sucesso"
+
+      # Criar arquivo .env dentro de um volume temporário para o Docker
+      echo "Preparando ambiente para migração..."
+      mkdir -p /workspace/prisma-env
+      echo "$DB_URL" > /workspace/prisma-env/database_url
+
+      # Executar container com migração montando volume
       echo "Executando migração..."
       docker run --rm \
-        -e DATABASE_URL="$(cat /workspace/secrets/conexao)" \
-        -e PRISMA_MIGRATE=true \
-        -e DEBUG=prisma:* \
+        -v /workspace/prisma-env:/prisma-env \
+        --entrypoint sh \
         southamerica-east1-docker.pkg.dev/${PROJECT_ID}/pricing-repo/pricing:latest \
-        sh -c 'cd /app && npx prisma migrate deploy --schema=/app/prisma/schema.prisma'
+        -c 'export DATABASE_URL=$(cat /prisma-env/database_url) && cd /app && echo "Database URL configurada" && npx prisma migrate deploy --schema=/app/prisma/schema.prisma'
 
       # Verificar status
       result=$?
       if [ $result -eq 0 ]; then
         echo "Migração concluída com sucesso"
         # Limpar arquivos temporários
-        rm -rf /workspace/secrets
+        rm -rf /workspace/secrets /workspace/prisma-env
       else
         echo "Falha na migração: código $result"
-        # Imprimir logs do container para ajudar no debug
-        echo "Últimos logs do container:"
-        docker logs $(docker ps -lq) 2>&1 || echo "Não foi possível obter logs do container"
+        # Tentar obter mais detalhes sobre o erro
+        echo "Tentando executar verificação da conexão..."
+        docker run --rm \
+          -v /workspace/prisma-env:/prisma-env \
+          --entrypoint sh \
+          southamerica-east1-docker.pkg.dev/${PROJECT_ID}/pricing-repo/pricing:latest \
+          -c 'export DATABASE_URL=$(cat /prisma-env/database_url) && cd /app && echo "Verificando conexão..." && npx prisma db pull --force --schema=/app/prisma/schema.prisma'
         exit 1
       fi
 
