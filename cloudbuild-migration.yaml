@@ -8,43 +8,88 @@ steps:
     - |
       # Criar um arquivo temporário para o .env
       echo "Configurando variáveis de ambiente para migração..."
+      ENV_FILE="/workspace/.env.migration"
 
       # Obter secrets do Secret Manager
       echo "Obtendo secrets do Secret Manager..."
-      gcloud secrets versions access latest --secret=env_pricing > /workspace/.env.migration
-      gcloud secrets versions access latest --secret=database_url_pricing >> /workspace/.env.migration
+      gcloud secrets versions access latest --secret=env_pricing > ${ENV_FILE}
+
+      # Obter a URL do banco de dados separadamente
+      echo "Obtendo URL do banco de dados..."
+      gcloud secrets versions access latest --secret=database_url_pricing > /workspace/db_url.txt
+
+      # Converter URL para formato otimizado para Cloud SQL
+      DB_URL=$(cat /workspace/db_url.txt)
+      echo "Verificando formato da URL do banco..."
+
+      if [[ ! "$DB_URL" =~ ^(postgresql|postgres):// ]]; then
+        echo "❌ ERRO: A URL do banco não está no formato correto. Deve começar com postgresql:// ou postgres://"
+        echo "URL atual (primeiros caracteres): ${DB_URL:0:15}..."
+        exit 1
+      fi
+
+      # Extrair partes da URL e reconstruir no formato otimizado
+      if [[ "$DB_URL" =~ socket=\/cloudsql\/([^&]*) ]]; then
+        INSTANCE_CONNECTION_NAME="${BASH_REMATCH[1]}"
+        echo "✅ Encontrada instância Cloud SQL: $INSTANCE_CONNECTION_NAME"
+
+        # Extrair usuário, senha e banco de dados
+        if [[ "$DB_URL" =~ postgresql://([^:]+):([^@]+)@[^/]+/([^?]+) ]]; then
+          DB_USER="${BASH_REMATCH[1]}"
+          DB_PASS="${BASH_REMATCH[2]}"
+          DB_NAME="${BASH_REMATCH[3]}"
+
+          # Construir nova URL otimizada
+          OPTIMIZED_URL="postgresql://$DB_USER:$DB_PASS@/$DB_NAME?host=/cloudsql/$INSTANCE_CONNECTION_NAME&schema=public"
+          echo "✅ URL otimizada para Cloud SQL (formato seguro)"
+
+          # Atualizar URL
+          DB_URL="$OPTIMIZED_URL"
+        fi
+      fi
+
+      # Adicionar a URL do banco ao arquivo .env
+      echo "DATABASE_URL=$DB_URL" >> ${ENV_FILE}
 
       # Verificar se os secrets foram obtidos corretamente
-      if [ ! -s /workspace/.env.migration ]; then
+      if [ ! -s ${ENV_FILE} ]; then
         echo "❌ Falha ao obter secrets necessários"
         exit 1
       fi
 
+      # Validar se DATABASE_URL está presente no arquivo
+      if ! grep -q "DATABASE_URL" ${ENV_FILE}; then
+        echo "❌ Variável DATABASE_URL não encontrada no arquivo de ambiente"
+        exit 1
+      fi
+
       echo "✅ Secrets obtidos com sucesso"
+      echo "✅ Conteúdo do arquivo .env (exemplo das primeiras linhas):"
+      head -n 3 ${ENV_FILE} | grep -v "PASSWORD\|SECRET\|KEY"
 
       # Executar migração usando a imagem mais recente
       echo "Executando migração do Prisma..."
 
       # Usar a imagem do container para executar a migração
       docker run --rm \
-        --env-file /workspace/.env.migration \
+        --env-file ${ENV_FILE} \
         --env PRISMA_MIGRATE=true \
         --env DEBUG=prisma:* \
         --env NODE_OPTIONS=--max-old-space-size=1536 \
         southamerica-east1-docker.pkg.dev/${PROJECT_ID}/pricing-repo/pricing:latest \
-        /bin/sh -c "cd /app && npx prisma migrate deploy"
+        /bin/sh -c "cd /app && echo 'DATABASE_URL formato: ' \$(echo \$DATABASE_URL | sed 's/:[^:]*@/:***@/g') && npx prisma migrate deploy"
 
       # Verificar resultado
       result_code=$?
       if [ $result_code -eq 0 ]; then
         echo "✅ Migração concluída com sucesso!"
-        # Limpar arquivo temporário
-        rm /workspace/.env.migration
+        # Limpar arquivos temporários
+        rm ${ENV_FILE} /workspace/db_url.txt
         exit 0
       else
         echo "❌ Migração falhou com código de saída: $result_code"
-        # Limpar arquivo temporário
-        rm /workspace/.env.migration
+        # Limpar arquivos temporários
+        rm ${ENV_FILE} /workspace/db_url.txt
         exit 1
       fi
   timeout: '900s'  # 15 minutos
