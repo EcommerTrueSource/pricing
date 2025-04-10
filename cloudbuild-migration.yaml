@@ -35,14 +35,14 @@ steps:
         bash -c "cd /app && npx prisma migrate deploy"
 
       # Verificar resultado
-      RESULT=$?
-      if [ $RESULT -eq 0 ]; then
+      result_code=$?
+      if [ $result_code -eq 0 ]; then
         echo "✅ Migração concluída com sucesso!"
         # Limpar arquivo temporário
         rm /workspace/.env.migration
         exit 0
       else
-        echo "❌ Migração falhou com código de saída: $RESULT"
+        echo "❌ Migração falhou com código de saída: $result_code"
         # Limpar arquivo temporário
         rm /workspace/.env.migration
         exit 1
