@@ -1,68 +1,25 @@
 steps:
-# Obter imagem Node para execução de migrações
+# Instalar dependências
 - name: 'node:18'
   id: 'instalar-dependencias'
   entrypoint: 'npm'
   args: ['ci']
 
-# Criar ou atualizar o Cloud Run Job para migrações (abordagem moderna)
-- name: 'gcr.io/google.com/cloudsdktool/cloud-sdk:slim'
-  id: 'atualizar-job'
-  entrypoint: 'bash'
-  args:
-    - '-c'
-    - |
-      echo "Verificando se o job prisma-migration-job existe..."
-      REGION="${_REGION}"
-      PROJECT_ID="${_PROJECT_ID}"
-
-      # Obter informações da imagem atual da aplicação
-      IMAGE_NAME=$(gcloud run services describe pricing \
-        --region ${_REGION} \
-        --format "value(spec.template.spec.containers[0].image)" | cut -d'@' -f1)
-
-      echo "Usando imagem: $IMAGE_NAME"
-
-      # Verificar se o job já existe
-      if gcloud run jobs describe prisma-migration-job --region ${_REGION} &>/dev/null; then
-        echo "Job existente encontrado, atualizando..."
-        gcloud run jobs update prisma-migration-job \
-          --region ${_REGION} \
-          --image $IMAGE_NAME \
-          --command "npx" \
-          --args "prisma,migrate,deploy" \
-          --set-cloudsql-instances ${_PROJECT_ID}:${_REGION}:pricing \
-          --service-account=pricing-contract@${_PROJECT_ID}.iam.gserviceaccount.com \
-          --set-secrets DATABASE_URL=pricing-database-url:latest
-      else
-        echo "Job não encontrado, criando..."
-        gcloud run jobs create prisma-migration-job \
-          --region ${_REGION} \
-          --image $IMAGE_NAME \
-          --command "npx" \
-          --args "prisma,migrate,deploy" \
-          --set-cloudsql-instances ${_PROJECT_ID}:${_REGION}:pricing \
-          --service-account=pricing-contract@${_PROJECT_ID}.iam.gserviceaccount.com \
-          --set-secrets DATABASE_URL=pricing-database-url:latest
-      fi
-
-      echo "✅ Cloud Run Job configurado com sucesso"
-
-# Baixar e configurar o Cloud SQL Proxy
+# Configurar Cloud SQL Proxy
 - name: 'gcr.io/cloud-builders/wget'
-  id: 'instalar-proxy'
+  id: 'configurar-proxy'
   entrypoint: 'bash'
   args:
     - '-c'
     - |
-      echo "Instalando Cloud SQL Proxy..."
+      echo "Configurando Cloud SQL Proxy..."
       wget https://storage.googleapis.com/cloudsql-proxy/v1.33.2/cloud_sql_proxy.linux.amd64 -O /workspace/cloud_sql_proxy
       chmod +x /workspace/cloud_sql_proxy
-      echo "✅ Cloud SQL Proxy instalado com sucesso"
+      echo "✅ Cloud SQL Proxy configurado com sucesso"
 
-# Verificar conexão com banco antes de prosseguir
+# Executar migração do Prisma
 - name: 'node:18'
-  id: 'verificar-conexao'
+  id: 'executar-migracao'
   entrypoint: 'bash'
   env:
     - 'DATABASE_URL=${_DATABASE_URL}'
@@ -70,105 +27,23 @@ steps:
     - '-c'
     - |
       echo "Iniciando Cloud SQL Proxy..."
-      # Usando o nome da instância correto do start-proxy.ps1
       /workspace/cloud_sql_proxy -instances=${_PROJECT_ID}:${_REGION}:pricing=tcp:5432 &
 
-      # Aguardar o proxy iniciar
+      echo "Aguardando inicialização do proxy..."
       sleep 5
 
-      echo "Verificando conexão com o banco de dados..."
-      # Modificando a URL para usar localhost
-      LOCAL_DB_URL=$(echo $DATABASE_URL | sed 's/\/\/.*@.*:/\/\/postgres:postgres@localhost:/')
-      echo "Testando conexão com URL local: ${LOCAL_DB_URL:0:30}..."
+      echo "Executando migração do Prisma..."
+      # Modifica a URL para usar localhost
+      LOCAL_DB_URL=$(echo $DATABASE_URL | sed 's/\/\/\(.*@\).*:/\/\/\1localhost:/')
 
-      npx prisma db execute --url="$LOCAL_DB_URL" --stdin <<< "SELECT 1;" || { echo "Falha ao conectar ao banco de dados"; exit 1; }
-      echo "✅ Conexão com banco de dados estabelecida com sucesso"
-
-# Gerar cliente Prisma
-- name: 'node:18'
-  id: 'gerar-cliente'
-  entrypoint: 'bash'
-  env:
-    - 'DATABASE_URL=${_DATABASE_URL}'
-  args:
-    - '-c'
-    - |
-      echo "Gerando cliente Prisma..."
+      # Gera cliente e aplica migrações
       npx prisma generate
-      echo "✅ Cliente Prisma gerado com sucesso"
-
-# Aplicar migrations no banco de dados (modo seguro para CI/CD)
-- name: 'node:18'
-  id: 'aplicar-migrations'
-  entrypoint: 'bash'
-  env:
-    - 'DATABASE_URL=${_DATABASE_URL}'
-  args:
-    - '-c'
-    - |
-      echo "Aplicando migrações com Cloud SQL Proxy..."
-      # Garantir que o proxy está rodando
-      if ! pgrep cloud_sql_proxy > /dev/null; then
-        echo "Reiniciando Cloud SQL Proxy..."
-        /workspace/cloud_sql_proxy -instances=${_PROJECT_ID}:${_REGION}:pricing=tcp:5432 &
-        sleep 5
-      fi
-
-      # Modificando a URL para usar localhost
-      LOCAL_DB_URL=$(echo $DATABASE_URL | sed 's/\/\/.*@.*:/\/\/postgres:postgres@localhost:/')
-
-      # Executar migração com a URL local
       DATABASE_URL="$LOCAL_DB_URL" npx prisma migrate deploy
-      echo "✅ Migrações aplicadas com sucesso"
 
-# Verificar integridade do banco pós-migração
-- name: 'node:18'
-  id: 'verificar-schema'
-  entrypoint: 'bash'
-  env:
-    - 'DATABASE_URL=${_DATABASE_URL}'
-  args:
-    - '-c'
-    - |
-      echo "Verificando integridade do banco de dados..."
-      # Garantir que o proxy está rodando
-      if ! pgrep cloud_sql_proxy > /dev/null; then
-        echo "Reiniciando Cloud SQL Proxy..."
-        /workspace/cloud_sql_proxy -instances=${_PROJECT_ID}:${_REGION}:pricing=tcp:5432 &
-        sleep 5
-      fi
-
-      # Modificando a URL para usar localhost
-      LOCAL_DB_URL=$(echo $DATABASE_URL | sed 's/\/\/.*@.*:/\/\/postgres:postgres@localhost:/')
-
-      # Verificar schema com a URL local
-      DATABASE_URL="$LOCAL_DB_URL" npx prisma db pull --schema-only
-      echo "✅ Schema do banco de dados está íntegro"
-
-# Executar o job de migração (abordagem moderna recomendada)
-- name: 'gcr.io/google.com/cloudsdktool/cloud-sdk:slim'
-  id: 'executar-job'
-  entrypoint: 'bash'
-  args:
-    - '-c'
-    - |
-      echo "Executando o Cloud Run Job para migrações..."
-      gcloud run jobs execute prisma-migration-job --region=${_REGION} --wait
-      echo "✅ Job de migração executado com sucesso"
-
-# Notificar conclusão da migração
-- name: 'gcr.io/cloud-builders/curl'
-  id: 'notificar'
-  entrypoint: 'bash'
-  args:
-    - '-c'
-    - |
-      echo "Migração do banco de dados concluída com sucesso!"
-      echo "✅ Abordagem Cloud SQL Proxy direta: Sucesso"
-      echo "✅ Abordagem Cloud Run Job: Sucesso"
+      echo "✅ Migração concluída com sucesso!"
 
 # Configurações globais
-timeout: '1800s'
+timeout: '1200s'
 substitutions:
   _DATABASE_URL: ""
   _REGION: "southamerica-east1"
