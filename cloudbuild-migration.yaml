@@ -8,7 +8,7 @@ steps:
       - |
         gcloud run jobs delete pricing-migration-job --region=southamerica-east1 --quiet || echo "Job não existia"
 
-  # Recriar o job de migração
+  # Recriar o job de migração com a string de conexão
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     id: 'criar-job-migracao'
     entrypoint: 'gcloud'
@@ -24,9 +24,9 @@ steps:
       - '--max-retries=3'
       - '--task-timeout=30m'
       - '--set-cloudsql-instances=${PROJECT_ID}:southamerica-east1:pricing'
-      - '--set-env-vars=NODE_ENV=production,DATABASE_URL=postgresql://${_DB_USER}:${_DB_PASSWORD}@localhost:5432/${_DB_NAME}?schema=public'
+      - "--set-env-vars=DATABASE_URL=postgresql://${_DB_USER}:${_DB_PASSWORD}@localhost:5432/${_DB_NAME}?schema=public"
       - '--command=sh'
-      - '--args=-c,cd /app && npx prisma migrate deploy --schema=/app/prisma/schema.prisma'
+      - '--args=-c,cd /app && echo "Valor de DATABASE_URL: $DATABASE_URL" && npx prisma migrate deploy --schema=/app/prisma/schema.prisma'
     waitFor: ['remover-job-existente']
 
   # Executar migrações
