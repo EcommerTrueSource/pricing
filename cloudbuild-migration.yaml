@@ -32,7 +32,7 @@ steps:
         --env DEBUG=prisma:* \
         --env NODE_OPTIONS=--max-old-space-size=1536 \
         southamerica-east1-docker.pkg.dev/${PROJECT_ID}/pricing-repo/pricing:latest \
-        bash -c "cd /app && npx prisma migrate deploy"
+        /bin/sh -c "cd /app && npx prisma migrate deploy"
 
       # Verificar resultado
       result_code=$?
