@@ -13,8 +13,8 @@ steps:
     - '-c'
     - |
       echo "Verificando se o job prisma-migration-job existe..."
-      REGION="southamerica-east1"
-      PROJECT_ID="truebrands-warehouse"
+      REGION="${_REGION}"
+      PROJECT_ID="${_PROJECT_ID}"
 
       # Obter informações da imagem atual da aplicação
       IMAGE_NAME=$(gcloud run services describe pricing \
@@ -71,7 +71,7 @@ steps:
     - |
       echo "Iniciando Cloud SQL Proxy..."
       # Usando o nome da instância correto do start-proxy.ps1
-      /workspace/cloud_sql_proxy -instances=truebrands-warehouse:southamerica-east1:pricing=tcp:5432 &
+      /workspace/cloud_sql_proxy -instances=${_PROJECT_ID}:${_REGION}:pricing=tcp:5432 &
 
       # Aguardar o proxy iniciar
       sleep 5
@@ -110,7 +110,7 @@ steps:
       # Garantir que o proxy está rodando
       if ! pgrep cloud_sql_proxy > /dev/null; then
         echo "Reiniciando Cloud SQL Proxy..."
-        /workspace/cloud_sql_proxy -instances=truebrands-warehouse:southamerica-east1:pricing=tcp:5432 &
+        /workspace/cloud_sql_proxy -instances=${_PROJECT_ID}:${_REGION}:pricing=tcp:5432 &
         sleep 5
       fi
 
@@ -134,7 +134,7 @@ steps:
       # Garantir que o proxy está rodando
       if ! pgrep cloud_sql_proxy > /dev/null; then
         echo "Reiniciando Cloud SQL Proxy..."
-        /workspace/cloud_sql_proxy -instances=truebrands-warehouse:southamerica-east1:pricing=tcp:5432 &
+        /workspace/cloud_sql_proxy -instances=${_PROJECT_ID}:${_REGION}:pricing=tcp:5432 &
         sleep 5
       fi
 
@@ -153,7 +153,7 @@ steps:
     - '-c'
     - |
       echo "Executando o Cloud Run Job para migrações..."
-      gcloud run jobs execute prisma-migration-job --region=southamerica-east1 --wait
+      gcloud run jobs execute prisma-migration-job --region=${_REGION} --wait
       echo "✅ Job de migração executado com sucesso"
 
 # Notificar conclusão da migração
@@ -171,6 +171,8 @@ steps:
 timeout: '1800s'
 substitutions:
   _DATABASE_URL: ""
+  _REGION: "southamerica-east1"
+  _PROJECT_ID: "truebrands-warehouse"
 options:
   logging: CLOUD_LOGGING_ONLY
 
