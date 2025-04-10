@@ -6,14 +6,29 @@ steps:
   args:
     - '-c'
     - |
-      # Instalar o Cloud SQL Proxy
-      echo "Instalando Cloud SQL Proxy..."
-      wget https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.6.1/cloud-sql-proxy.linux.amd64 -O cloud_sql_proxy
+      # Verificar e encerrar proxies existentes
+      echo "Verificando processos existentes do Cloud SQL Proxy..."
+      pgrep cloud_sql_proxy && pkill cloud_sql_proxy
+      sleep 2
+
+      # Instalação do Cloud SQL Proxy
+      echo "Baixando Cloud SQL Proxy..."
+      curl -o cloud_sql_proxy https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.6.1/cloud-sql-proxy.linux.amd64
       chmod +x cloud_sql_proxy
 
-      # Iniciar o Cloud SQL Proxy em segundo plano
+      # Criar arquivo de serviço temporário para autenticação
+      echo "Configurando autenticação..."
+      gcloud auth application-default login --no-launch-browser --quiet
+
+      # Verificar se a porta 5432 está disponível
+      if lsof -i :5432 > /dev/null 2>&1; then
+        echo "ERRO: Porta 5432 já está em uso!"
+        exit 1
+      fi
+
+      # Iniciar o Cloud SQL Proxy com a nova sintaxe
       echo "Iniciando Cloud SQL Proxy..."
-      ./cloud_sql_proxy --instances=${PROJECT_ID}:southamerica-east1:pricing=tcp:5432 --quiet &
+      ./cloud_sql_proxy "${PROJECT_ID}:southamerica-east1:pricing" --port 5432 &
       echo $! > /tmp/proxy_pid
 
       # Aguardar o proxy iniciar
@@ -21,10 +36,12 @@ steps:
       sleep 5
 
       # Verificar se o proxy está escutando
-      if ! netstat -tulpn | grep :5432 > /dev/null; then
-        echo "Erro: Cloud SQL Proxy não está escutando na porta 5432"
-        kill $(cat /tmp/proxy_pid)
-        exit 1
+      if ! curl -s http://localhost:5432 > /dev/null; then
+        if ! lsof -i :5432 > /dev/null 2>&1; then
+          echo "Erro: Cloud SQL Proxy não está escutando na porta 5432"
+          kill -9 $(cat /tmp/proxy_pid) || true
+          exit 1
+        fi
       fi
 
       echo "Cloud SQL Proxy configurado com sucesso"
@@ -41,7 +58,7 @@ steps:
 
       # Encerrar o proxy
       echo "Encerrando Cloud SQL Proxy..."
-      kill $(cat /tmp/proxy_pid)
+      kill -9 $(cat /tmp/proxy_pid) || true
 
       # Verificar o resultado
       if [ "$(cat /tmp/result)" = "0" ]; then
