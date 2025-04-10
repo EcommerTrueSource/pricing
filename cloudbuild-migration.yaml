@@ -25,7 +25,8 @@ steps:
       - '--task-timeout=30m'
       - '--set-cloudsql-instances=${PROJECT_ID}:southamerica-east1:pricing'
       - '--set-env-vars=NODE_ENV=production,DATABASE_URL=postgresql://${_DB_USER}:${_DB_PASSWORD}@localhost:5432/${_DB_NAME}?schema=public'
-      - '--command=cd,/app,&&,npx,prisma,migrate,deploy,--schema=/app/prisma/schema.prisma'
+      - '--command=sh'
+      - '--args=-c,cd /app && npx prisma migrate deploy --schema=/app/prisma/schema.prisma'
     waitFor: ['remover-job-existente']
 
   # Executar migrações
