@@ -11,10 +11,10 @@ steps:
       wget https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.6.1/cloud-sql-proxy.linux.amd64 -O cloud_sql_proxy
       chmod +x cloud_sql_proxy
 
-      # Iniciar o Cloud SQL Proxy em segundo plano e guardar PID em arquivo
+      # Iniciar o Cloud SQL Proxy em segundo plano
       echo "Iniciando Cloud SQL Proxy..."
       ./cloud_sql_proxy --instances=${PROJECT_ID}:southamerica-east1:pricing=tcp:5432 --quiet &
-      echo $! > /tmp/proxy.pid
+      echo $! > /tmp/proxy_pid
 
       # Aguardar o proxy iniciar
       echo "Aguardando inicialização do proxy..."
@@ -23,7 +23,7 @@ steps:
       # Verificar se o proxy está escutando
       if ! netstat -tulpn | grep :5432 > /dev/null; then
         echo "Erro: Cloud SQL Proxy não está escutando na porta 5432"
-        kill $(cat /tmp/proxy.pid)
+        kill $(cat /tmp/proxy_pid)
         exit 1
       fi
 
@@ -31,20 +31,20 @@ steps:
 
       # Executar o Prisma Migrate usando Docker com a rede host
       echo "Executando migração do Prisma..."
-      docker run --network=host --rm \
-        -e DATABASE_URL="postgresql://pricing-system:True@%23012987@localhost:5432/contract-management?schema=public" \
+      docker run --network=host \
+        -e DATABASE_URL="postgresql://${_DB_USER}:${_DB_PASSWORD}@localhost:5432/${_DB_NAME}?schema=public" \
         southamerica-east1-docker.pkg.dev/${PROJECT_ID}/pricing-repo/pricing:latest \
         sh -c "cd /app && npx prisma migrate deploy --schema=/app/prisma/schema.prisma"
 
-      # Capturar o código de saída
-      MIGRATION_RESULT=$?
+      # Salvar o resultado
+      echo $? > /tmp/result
 
       # Encerrar o proxy
       echo "Encerrando Cloud SQL Proxy..."
-      kill $(cat /tmp/proxy.pid)
+      kill $(cat /tmp/proxy_pid)
 
-      # Retornar o resultado do comando de migração
-      if [ $MIGRATION_RESULT -eq 0 ]; then
+      # Verificar o resultado
+      if [ "$(cat /tmp/result)" = "0" ]; then
         echo "✅ Migração concluída com sucesso"
         exit 0
       else
