@@ -1,46 +1,50 @@
 steps:
-# Passo 1: Obter secrets do Secret Manager
-- name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
-  id: 'obter-secrets'
+# Executar migração diretamente no contêiner do Cloud Build
+- name: 'gcr.io/cloud-builders/docker'
+  id: 'executar-migracao'
   entrypoint: 'bash'
   args:
     - '-c'
     - |
-      # Criar diretório temporário para as configurações
-      mkdir -p /workspace/configs
-
-      # Obter DATABASE_URL do Secret Manager
+      # Obter DATABASE_URL do Secret Manager e montar como arquivo
       echo "Obtendo DATABASE_URL do Secret Manager..."
-      gcloud secrets versions access latest --secret=database_url_pricing > /workspace/configs/database_url
+      mkdir -p /workspace/secrets
+      gcloud secrets versions access latest --secret=database_url_pricing > /workspace/secrets/database_url
 
-      # Verificar se conseguimos obter a URL do banco
-      if [ ! -s /workspace/configs/database_url ]; then
+      # Validar se o arquivo foi criado corretamente
+      if [ ! -s /workspace/secrets/database_url ]; then
         echo "❌ Falha ao obter DATABASE_URL do Secret Manager"
         exit 1
       fi
 
-      echo "✅ Secrets obtidos com sucesso"
-      echo "DATABASE_URL formato: $(cat /workspace/configs/database_url | sed 's/:[^:]*@/:***@/g')"
+      echo "✅ Secret do banco de dados obtido com sucesso"
 
-# Passo 2: Executar migração diretamente usando a imagem da aplicação
-- name: 'docker'
-  id: 'executar-migracao'
-  args:
-    - 'run'
-    - '--rm'
-    - '-v'
-    - '/workspace/configs:/configs'
-    - '-e'
-    - 'DATABASE_URL=$(cat /configs/database_url)'
-    - '-e'
-    - 'PRISMA_MIGRATE=true'
-    - '-e'
-    - 'DEBUG=prisma:*'
-    - 'southamerica-east1-docker.pkg.dev/${PROJECT_ID}/pricing-repo/pricing:latest'
-    - '/bin/sh'
-    - '-c'
-    - 'cd /app && echo "== Verificando conexão com banco de dados ==" && echo $DATABASE_URL | sed "s/:[^:]*@/:***@/g" && echo "== Executando migração ==" && npx prisma migrate deploy --schema=prisma/schema.prisma'
-  waitFor: ['obter-secrets']
+      # Criar arquivo de ambiente para o Docker
+      cat > /workspace/secrets/.env << EOF
+      PRISMA_MIGRATE=true
+      DEBUG=prisma:*
+      NODE_OPTIONS=--max-old-space-size=1536
+      EOF
+
+      # Anexar DATABASE_URL ao arquivo .env (sem exibi-lo nos logs)
+      echo "DATABASE_URL=$(cat /workspace/secrets/database_url)" >> /workspace/secrets/.env
+
+      echo "✅ Arquivo de ambiente criado"
+
+      # Executar a migração usando a imagem da aplicação
+      echo "Executando migração do Prisma..."
+      docker run --rm \
+        --env-file /workspace/secrets/.env \
+        southamerica-east1-docker.pkg.dev/${PROJECT_ID}/pricing-repo/pricing:latest \
+        /bin/sh -c "cd /app && echo '== VERIFICANDO BANCO ==' && echo \$DATABASE_URL | sed 's/:[^:]*@/:***@/g' && echo '== EXECUTANDO MIGRAÇÃO ==' && npx prisma migrate deploy --schema=prisma/schema.prisma"
+
+      # Verificar resultado
+      if [ $? -eq 0 ]; then
+        echo "✅ Migração concluída com sucesso!"
+      else
+        echo "❌ Migração falhou"
+        exit 1
+      fi
 
 # Configuração global
 timeout: '1800s'  # 30 minutos para todo o build
