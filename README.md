@@ -222,3 +222,87 @@ Para suporte, envie um email para gabriel.nascimento@truebrands.com.br
 ## 📄 Licença
 
 Este projeto está sob a licença MIT. Veja o arquivo [LICENSE](LICENSE) para mais detalhes.
+
+## Migrações do Banco de Dados
+
+### Migrações via Cloud Build
+
+O projeto inclui um sistema automatizado para executar migrações do Prisma usando o Google Cloud Build. Isso permite realizar migrações seguras no ambiente de produção sem necessidade de acesso direto ao banco de dados.
+
+#### Pré-requisitos
+
+- Google Cloud SDK (gcloud) instalado e configurado
+- Permissões adequadas no projeto do Google Cloud
+- Variáveis de ambiente configuradas corretamente
+- Repositório vinculado ao Cloud Build
+
+#### Como usar
+
+##### Opção 1: Configuração e execução automática
+
+1. **Configuração do Trigger**
+
+   ```powershell
+   # Configurar apenas o trigger (sem executar migração)
+   .\scripts\run-migration.ps1 -ProjectID "seu-projeto-id" -CreateTriggerOnly
+
+   # Especificando o repositório
+   .\scripts\run-migration.ps1 -ProjectID "seu-projeto-id" -RepoOwner "seu-usuario-github" -RepoName "seu-repositorio" -CreateTriggerOnly
+   ```
+
+2. **Execução da Migração**
+
+   ```powershell
+   # Executar migração usando a URL do banco padrão
+   .\scripts\run-migration.ps1 -ProjectID "seu-projeto-id"
+
+   # Ou especificando a URL do banco
+   .\scripts\run-migration.ps1 -ProjectID "seu-projeto-id" -DatabaseURL "postgresql://user:pass@host:5432/db"
+   ```
+
+##### Opção 2: Usando trigger criado manualmente
+
+Se você preferir criar o trigger manualmente no console do Google Cloud, pode usar o script simplificado para executar apenas a migração:
+
+```powershell
+# Executar migração com trigger existente
+.\scripts\execute-migration-only.ps1 -ProjectID "seu-projeto-id"
+
+# Ou especificando a URL do banco
+.\scripts\execute-migration-only.ps1 -ProjectID "seu-projeto-id" -DatabaseURL "postgresql://user:pass@host:5432/db"
+```
+
+#### Parâmetros disponíveis
+
+##### Para run-migration.ps1
+   | Parâmetro | Descrição | Padrão |
+   |-----------|-----------|--------|
+   | ProjectID | ID do projeto no Google Cloud (obrigatório) | - |
+   | Region | Região do Google Cloud | southamerica-east1 |
+   | TriggerName | Nome do trigger | prisma-migration-trigger |
+   | RepoOwner | Nome do usuário/organização no GitHub | truebrands |
+   | RepoName | Nome do repositório no GitHub | pricing |
+   | Branch | Branch do repositório | main |
+   | DatabaseURL | URL de conexão do banco de dados | Configuração padrão do Cloud Build |
+   | CreateTriggerOnly | Cria apenas o trigger sem executar migração | false |
+
+##### Para execute-migration-only.ps1
+   | Parâmetro | Descrição | Padrão |
+   |-----------|-----------|--------|
+   | ProjectID | ID do projeto no Google Cloud (obrigatório) | - |
+   | Region | Região do Google Cloud | southamerica-east1 |
+   | TriggerName | Nome do trigger | prisma-migration-trigger |
+   | DatabaseURL | URL de conexão do banco de dados | Configuração padrão do trigger |
+
+#### Fluxo de Migração
+
+O processo de migração realiza as seguintes etapas:
+
+1. Instala as dependências do projeto
+2. Verifica a conexão com o banco de dados
+3. Gera as migrações pendentes (se houver)
+4. Aplica as migrações usando `prisma migrate deploy`
+5. Gera o cliente Prisma atualizado
+6. Verifica a integridade do banco de dados
+
+> **Nota:** O sistema foi projetado para ser seguro em ambientes de produção, utilizando `migrate deploy` em vez de `migrate dev`.

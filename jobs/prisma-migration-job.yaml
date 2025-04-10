@@ -1,0 +1,24 @@
+apiVersion: run.googleapis.com/v1
+kind: Job
+metadata:
+  name: prisma-migration-job
+spec:
+  template:
+    spec:
+      containers:
+      - image: ${IMAGE_NAME}
+        resources:
+          limits:
+            cpu: 1
+            memory: 512Mi
+        env:
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: pricing-database-url
+              key: latest
+        command: ["npx"]
+        args: ["prisma", "migrate", "deploy"]
+      serviceAccountName: pricing-contract@truebrands-warehouse.iam.gserviceaccount.com
+      maxRetries: 3
+      timeoutSeconds: 300
