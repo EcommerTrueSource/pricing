@@ -13,5 +13,4 @@ steps:
 
 timeout: '1200s'
 options:
-  logging: GCS_ONLY # Necessário quando logsBucket é especificado
-  logsBucket: 'gs://truebrands-warehouse-cloudbuild-logs'
+  logging: CLOUD_LOGGING_ONLY # Alterado de GCS_ONLY
