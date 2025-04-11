@@ -26,7 +26,8 @@
     "prisma:deploy": "prisma migrate deploy",
     "start:proxy": "powershell -ExecutionPolicy Bypass -File start-proxy.ps1",
     "dev": "npm run start:dev",
-    "command": "ts-node src/cli.ts"
+    "command": "ts-node src/cli.ts",
+    "prisma:migrate:create": "prisma migrate dev --create-only"
   },
   "dependencies": {
     "@babel/runtime": "^7.27.0",

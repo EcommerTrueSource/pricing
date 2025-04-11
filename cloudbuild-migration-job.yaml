@@ -12,6 +12,3 @@ steps:
       ./jobs/create-migration-job.sh
 
 timeout: '1200s'
-options:
-  logging: GCS_ONLY
-  logsBucket: 'gs://truebrands-warehouse-cloudbuild-logs'

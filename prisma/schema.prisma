@@ -11,36 +11,36 @@ datasource db {
 
 model users {
   id            String         @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  email         String         @unique
-  password_hash String?
-  first_name    String
-  last_name     String
-  picture       String?
+  email         String         @unique @db.VarChar(255)
+  password_hash String?        @db.VarChar(255)
+  first_name    String         @db.VarChar(255)
+  last_name     String         @db.VarChar(255)
+  picture       String?        @db.VarChar(255)
   roles         String[]       @default(["USER"])
-  provider      String?        @default("local")
-  provider_id   String?
-  active        Boolean        @default(true)
-  created_at    DateTime       @default(now()) @db.Timestamptz(6)
-  updated_at    DateTime       @default(now()) @updatedAt @db.Timestamptz(6)
+  provider      String?        @default("local") @db.VarChar(50)
+  provider_id   String?        @db.VarChar(255)
+  active        Boolean?       @default(true)
+  created_at    DateTime?      @default(now()) @db.Timestamptz(6)
+  updated_at    DateTime?      @default(now()) @updatedAt @db.Timestamptz(6)
   invites_sent  user_invites[] @relation("SentBy")
 
   @@map("users")
 }
 
 model user_invites {
-  id           String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  email        String
-  token        String    @unique
-  roles        String[]  @default(["USER"])
-  expires_at   DateTime  @db.Timestamptz(6)
-  accepted     Boolean   @default(false)
-  created_at   DateTime  @default(now()) @db.Timestamptz(6)
-  sent_by_id   String    @db.Uuid
-  sent_by      users     @relation("SentBy", fields: [sent_by_id], references: [id])
-  accepted_at  DateTime? @db.Timestamptz(6)
+  id          String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  email       String    @db.VarChar(255)
+  token       String    @unique @db.VarChar(255)
+  roles       String[]  @default(["USER"])
+  expires_at  DateTime  @db.Timestamptz(6)
+  accepted    Boolean?  @default(false)
+  created_at  DateTime? @default(now()) @db.Timestamptz(6)
+  sent_by_id  String    @db.Uuid
+  accepted_at DateTime? @db.Timestamptz(6)
+  sent_by     users     @relation("SentBy", fields: [sent_by_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
-  @@index([token])
-  @@index([email])
+  @@index([email], map: "idx_invite_email")
+  @@index([token], map: "idx_invite_token")
   @@map("user_invites")
 }
 
@@ -130,12 +130,12 @@ model templates {
 }
 
 model system_settings {
-  id            String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  key           String    @unique
-  value         String
-  description   String?
-  updated_at    DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
-  created_at    DateTime  @default(now()) @db.Timestamptz(6)
+  id          String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  key         String   @unique
+  value       String
+  description String?
+  updated_at  DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+  created_at  DateTime @default(now()) @db.Timestamptz(6)
 
   @@index([key])
 }
