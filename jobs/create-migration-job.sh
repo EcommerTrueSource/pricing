@@ -3,17 +3,20 @@
 # Define variáveis
 PROJECT_ID="truebrands-warehouse"
 REGION="southamerica-east1"
-SERVICE_NAME="pricing"
+# SERVICE_NAME="pricing" # Não precisamos mais disso
 
 # Obter a imagem mais recente do serviço
-IMAGE_NAME=$(gcloud run services describe $SERVICE_NAME \
-  --region $REGION \
-  --format "value(spec.template.spec.containers[0].image)" | cut -d'@' -f1)
+# IMAGE_NAME=$(gcloud run services describe $SERVICE_NAME \\
+#  --region $REGION \\
+#  --format "value(spec.template.spec.containers[0].image)" | cut -d\\'@\\' -f1)
+#
+# if [ -z "$IMAGE_NAME" ]; then
+#  echo "ERRO: Não foi possível obter a imagem do serviço $SERVICE_NAME. Verifique se o serviço existe e se o nome está correto."
+#  exit 1
+# fi
 
-if [ -z "$IMAGE_NAME" ]; then
-  echo "ERRO: Não foi possível obter a imagem do serviço $SERVICE_NAME. Verifique se o serviço existe e se o nome está correto."
-  exit 1
-fi
+# Usar diretamente a tag latest que o build principal deve ter criado
+IMAGE_NAME="southamerica-east1-docker.pkg.dev/$PROJECT_ID/pricing-repo/pricing:latest"
 
 echo "Imagem que será usada: $IMAGE_NAME"
 
