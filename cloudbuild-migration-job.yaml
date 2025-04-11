@@ -13,5 +13,5 @@ steps:
 
 timeout: '1200s'
 options:
-  logging: CLOUD_LOGGING_ONLY
-  defaultLogsBucketBehavior: REGIONAL_USER_OWNED_BUCKET
+  logging: GCS_ONLY
+  logsBucket: 'gs://truebrands-warehouse-cloudbuild-logs'
